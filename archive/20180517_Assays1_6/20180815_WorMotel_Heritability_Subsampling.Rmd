@@ -1,0 +1,456 @@
+---
+title: "20180815_WorMotel_Heritability_subsampling"
+author: "Tim C."
+date: "8/15/2018"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+This code uses processed survival data from Chris Fang-Yen's lab to calculate heritability of survival traits. The data were collected with WorMotel in four replicate blocks (independent bleaches) by Matt Churgin at UPenn. Block 1 (worMotels 3 and 5) and Block 2 (WorMotels 1,2,4,6) were run without stringent control of strain handling before assay. Block 3 (worMotels 7 - 9) and Block 4 (WorMotels 10-12) were handled using HTA strain handling protocol from ECA lab. In all cases 12 strains were run on a single wormMotels with (20 nematodes / strain). 
+
+```{r, echo=F, warning = F, message=F}
+library(rio)
+library(ggplot2)
+library(dplyr)
+library(survival)
+library(flexsurv)
+library(broom)
+library(minpack.lm)
+library(forcats)
+library(glue)
+library(scales)
+library(boot)
+try(setwd(dirname(rstudioapi::getActiveDocumentContext()$path)))
+```
+
+```{r, echo=FALSE, warning=FALSE}
+# define heritability test
+# data is data frame that contains strain and phenotype column
+# indicies are used by the boot function to sample from the 'data' data.frame
+H2.test.boot <- function(data, indicies){
+
+  d <- data[indicies,]
+
+  pheno <- as.data.frame(dplyr::select(d, phenotype))[,1]
+  strain <- as.factor(d$strain)
+
+  reffMod <- lme4::lmer(pheno ~ 1 + (1|strain))
+
+  Variances <- as.data.frame(lme4::VarCorr(reffMod, comp = "Variance"))
+
+  Vg <- Variances$vcov[1]
+  Ve <- Variances$vcov[2]
+  H2 <- Vg/(Vg+Ve)
+
+  # errors <- sqrt(diag(lme4::VarCorr(reffMod, comp = "Variance")$strain))
+
+  return(H2)
+}
+# data is data frame that contains strain and phenotype column
+H2.test <- function(data){
+
+  pheno <- as.data.frame(dplyr::select(data, phenotype))[,1]
+  strain <- as.factor(data$strain)
+
+  reffMod <- lme4::lmer(pheno ~ 1 + (1|strain))
+
+  Variances <- as.data.frame(lme4::VarCorr(reffMod, comp = "Variance"))
+
+  Vg <- Variances$vcov[1]
+  Ve <- Variances$vcov[2]
+  H2 <- Vg/(Vg+Ve)
+
+  # errors <- sqrt(diag(lme4::VarCorr(reffMod, comp = "Variance")$strain))
+
+  return(H2)
+}
+
+# df is data frame that contains strain and phenotype column
+H2.calc <- function(df, boot = T){
+
+
+  if(boot == T){
+    # bootstrapping with 1000 replications
+    results <- boot(data=df, statistic=H2.test.boot, R=10000)
+
+    # get 95% confidence interval
+    ci <- boot.ci(results, type="bca")
+
+    H2_errors <- data.frame(H2 = ci$t0, ci_l = ci$bca[4], ci_r = ci$bca[5])
+
+    return(H2_errors)
+
+  } else {
+
+    H2 <- data.frame(H2 = H2.test(data = df), ci_l = NA, ci_r = NA)
+    return(H2)
+  }
+
+}
+
+
+# remove outliers function
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- NA
+  y[x > (qnt[2] + H)] <- NA
+  y
+}
+
+
+```
+
+## Sampled from all four blocks, three worMotels each
+```{r, echo=FALSE, warning=FALSE}
+# do block regression and calculate H2 for all traits.
+old_dat <- as.data.frame(read.csv(file = "/Users/tim/Documents/WorMotel/2017_Pilot1_Survival/20170116_FullProcessed.csv", header = T)) %>%
+  dplyr::rename(plate_num = bio_rep, replicate_num = tech_rep, worm_num = rep, lifespan_days = life_span, time_days = time_d) %>%
+  dplyr::mutate(dataset = "old")
+  
+new_dat <- as.data.frame(read.csv(file = "WildIsolateLSData_180515.csv", header = T)) %>%
+  dplyr::mutate(lifespan_days = ifelse(lifespan_days == "NaN", NA, lifespan_days),
+                plate_num = plate_num + 6,
+                replicate_num = replicate_num + 2,
+                activity_type = as.factor(ifelse(activity_type == -1, "stim", "base")),
+                dataset = "new",
+                activity = ifelse(activity == "NaN", NA, activity))
+
+full_dat <- dplyr::bind_rows(old_dat, new_dat) %>%
+  dplyr::group_by(strain, replicate_num, plate_num, activity_type, worm_num) %>%
+  dplyr::distinct(time_days, .keep_all = T) %>% # remove extra 22.5 days timepoint
+  dplyr::ungroup() %>%
+  tidyr::spread(key = activity_type, value = activity) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(base_outliers = remove_outliers(base),
+                stim_outliers = remove_outliers(stim)) %>% 
+  dplyr::group_by(replicate_num, plate_num, strain, worm_num) %>%
+  dplyr::mutate(w_int_b_activity =  sum(base_outliers, na.rm = T),
+                w_int_s_activity = sum(stim_outliers, na.rm = T)) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-time_days, -base, -stim, -dataset) %>% # removing unused time data
+  dplyr::distinct(strain, replicate_num, plate_num, worm_num, .keep_all = T)
+  #tidyr::gather(trait, phenotype, -strain, -replicate_num, -plate_num, -worm_num)
+
+# calculate heritability for ratio
+n_range = c(3:20)
+h2_table_all_blocks <- data.frame(trait=character(),
+                       H2 = double(),
+                       sample_size = numeric(), 
+                       run = numeric()) 
+h2_table_temp <- data.frame(trait=character(),
+                       H2 = double(),
+                       sample_size = numeric(), 
+                       run = numeric()) 
+
+for (n in n_range){
+  for (i in 1:10){
+    #subsample from raw dataset, n number of worms per strain per worMotel per Block. 
+    df_subsample1 <- full_dat %>%
+      dplyr::group_by(replicate_num, plate_num, strain) %>%
+      sample_n(size = n, replace = FALSE) %>%
+      dplyr::ungroup()
+     
+    #regress out block effect 
+    df_subsample2 <- df_subsample1 %>% 
+      dplyr::filter(!is.na(lifespan_days)) %>% #Filter out missing data worms
+      dplyr::mutate(lifespan_days_regressed = residuals(lm(lifespan_days ~ replicate_num)),
+                    w_int_b_activity_regressed = residuals(lm(w_int_b_activity ~ replicate_num)),
+                    w_int_s_activity_regressed = residuals(lm(w_int_s_activity ~ replicate_num)))
+                    
+    #calculate means of all subsampled wells for a replicate bleach, regressed data by bleach
+    df_subsample3 <- df_subsample2  %>%
+      dplyr::group_by(replicate_num, plate_num, strain) %>%
+      dplyr::mutate(mean_lifespan_days = mean(lifespan_days),
+                    mean_int_b_activity = mean(w_int_b_activity),
+                    mean_int_s_activity = mean(w_int_s_activity),
+                    mean_lifespan_days_regressed = mean(lifespan_days_regressed),
+                    mean_int_b_activity_regressed = mean(w_int_b_activity_regressed), 
+                    mean_int_s_activity_regressed = mean(w_int_s_activity_regressed)) %>%
+      dplyr::ungroup()
+    
+    #shape data to fit into H2 function properly 
+    df_subsample4 <- df_subsample3 %>%
+      dplyr::select(replicate_num, plate_num, strain, mean_lifespan_days,
+                    mean_int_b_activity, mean_int_s_activity, mean_lifespan_days_regressed,
+                    mean_int_b_activity_regressed, mean_int_s_activity_regressed) %>%
+      dplyr::distinct(replicate_num, plate_num, strain, .keep_all = TRUE) %>%
+      tidyr::gather(trait, phenotype, -strain, -replicate_num, -plate_num) %>%
+      dplyr::ungroup() %>%
+      dplyr::select(-replicate_num, -plate_num)
+
+    # run heritability
+    h2_traits_temp <- df_subsample4 %>%
+      dplyr::group_by(trait) %>%
+      dplyr::do(broom::tidy(H2.test(.))) %>%
+      dplyr::rename(H2 = x) %>%
+      dplyr::mutate(sample_size = n, 
+                    run = i)
+
+    #join H2 table together 
+    h2_table_all_blocks <- bind_rows(h2_table_temp, h2_traits_temp)
+    h2_table_temp <- h2_table_all_blocks 
+  }}
+
+#Broad Sense Heritability, subsampling n worms from each strain in all 4 blocks
+
+broad_sense_heritability_subsampling_all_blocks <- ggplot(h2_table_all_blocks) +
+  geom_point(aes(x = sample_size, y = H2), alpha = 0.5, size = 1) +
+  theme_light() +
+  facet_wrap(~trait, nrow = 2) +
+  ylim(0,0.2) +
+  labs(x="worms per strain per worMotel", y="Heritability", colour = "", title = "") +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"))
+broad_sense_heritability_subsampling_all_blocks
+
+```
+<br>
+`mean_int_b_activity` = mean integrated base activity <br>
+`mean_int_s_activity` = mean integrated stimulated activity <br>
+`mean_lifespan_days = mean lifespan days` <br>
+
+## Sampled two "good" blocks with three worMotels each
+```{r, echo=FALSE, warning=FALSE}
+# calculate heritability for ratio
+n_range = c(3:20)
+h2_table_good_blocks <- data.frame(trait=character(),
+                       H2 = double(),
+                       sample_size = numeric(), 
+                       run = numeric()) 
+h2_table_temp <- data.frame(trait=character(),
+                       H2 = double(),
+                       sample_size = numeric(), 
+                       run = numeric()) 
+
+for (n in n_range){
+  for (i in 1:10){
+    #subsample from raw dataset, n number of worms per strain per worMotel per Block. 
+    df_subsample1 <- full_dat %>%
+      dplyr::filter(replicate_num %in% c(3, 4)) %>%
+      dplyr::group_by(replicate_num, plate_num, strain) %>%
+      sample_n(size = n, replace = FALSE) %>%
+      dplyr::ungroup()
+     
+    #regress out block effect 
+    df_subsample2 <- df_subsample1 %>% 
+      dplyr::filter(!is.na(lifespan_days)) %>% #Filter out missing data worms
+      dplyr::mutate(lifespan_days_regressed = residuals(lm(lifespan_days ~ replicate_num)),
+                    w_int_b_activity_regressed = residuals(lm(w_int_b_activity ~ replicate_num)),
+                    w_int_s_activity_regressed = residuals(lm(w_int_s_activity ~ replicate_num)))
+                    
+    #calculate means of all subsampled wells for a replicate bleach, regressed data by bleach
+    df_subsample3 <- df_subsample2  %>%
+      dplyr::group_by(replicate_num, plate_num, strain) %>%
+      dplyr::mutate(mean_lifespan_days = mean(lifespan_days),
+                    mean_int_b_activity = mean(w_int_b_activity),
+                    mean_int_s_activity = mean(w_int_s_activity),
+                    mean_lifespan_days_regressed = mean(lifespan_days_regressed),
+                    mean_int_b_activity_regressed = mean(w_int_b_activity_regressed), 
+                    mean_int_s_activity_regressed = mean(w_int_s_activity_regressed)) %>%
+      dplyr::ungroup()
+    
+    #shape data to fit into H2 function properly 
+    df_subsample4 <- df_subsample3 %>%
+      dplyr::select(replicate_num, plate_num, strain, mean_lifespan_days,
+                    mean_int_b_activity, mean_int_s_activity, mean_lifespan_days_regressed,
+                    mean_int_b_activity_regressed, mean_int_s_activity_regressed) %>%
+      dplyr::distinct(replicate_num, plate_num, strain, .keep_all = TRUE) %>%
+      tidyr::gather(trait, phenotype, -strain, -replicate_num, -plate_num) %>%
+      dplyr::ungroup() %>%
+      dplyr::select(-replicate_num, -plate_num)
+
+    # run heritability
+    h2_traits_temp <- df_subsample4 %>%
+      dplyr::group_by(trait) %>%
+      dplyr::do(broom::tidy(H2.test(.))) %>%
+      dplyr::rename(H2 = x) %>%
+      dplyr::mutate(sample_size = n, 
+                    run = i)
+
+    #join H2 table together 
+    h2_table_good_blocks <- bind_rows(h2_table_temp, h2_traits_temp)
+    h2_table_temp <- h2_table_good_blocks 
+  }}
+
+#Broad Sense Heritability, subsampling n worms from each strain in all 4 blocks
+
+broad_sense_heritability_subsampling_good_blocks <- ggplot(h2_table_good_blocks) +
+  geom_point(aes(x = sample_size, y = H2), alpha = 0.5, size = 1) +
+  theme_light() +
+  facet_wrap(~trait, nrow = 2) +
+  ylim(0,0.5) +
+  labs(x="worms per strain per worMotel", y="Heritability", colour = "", title = "") +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"))
+broad_sense_heritability_subsampling_good_blocks
+
+```
+
+
+## Sample two "good" blocks with one worMotel each 
+```{r, echo=FALSE, warning=FALSE}
+# calculate heritability for ratio
+n_range = c(5:20)
+h2_table_good_blocks_one_worMotel <- data.frame(trait=character(),
+                       H2 = double(),
+                       sample_size = numeric(), 
+                       run = numeric()) 
+h2_table_temp <- data.frame(trait=character(),
+                       H2 = double(),
+                       sample_size = numeric(), 
+                       run = numeric()) 
+
+for (n in n_range){
+  for (i in 1:10){
+    #subsample from raw dataset, n number of worms per strain per worMotel per Block. 
+    df_subsample1 <- full_dat %>%
+      dplyr::filter(replicate_num %in% c(3,4)) %>%
+      dplyr::mutate(worm = as.numeric(paste0(plate_num, worm_num))) %>%
+      dplyr::select(-plate_num, -worm_num) %>%
+      dplyr::group_by(replicate_num, strain) %>%
+      sample_n(size = n, replace = FALSE) %>%
+      dplyr::ungroup()
+     
+    #regress out block effect 
+    df_subsample2 <- df_subsample1 %>% 
+      dplyr::filter(!is.na(lifespan_days)) %>% #Filter out missing data worms
+      dplyr::mutate(lifespan_days_regressed = residuals(lm(lifespan_days ~ replicate_num)),
+                    w_int_b_activity_regressed = residuals(lm(w_int_b_activity ~ replicate_num)),
+                    w_int_s_activity_regressed = residuals(lm(w_int_s_activity ~ replicate_num)))
+                    
+    #calculate means of all subsampled wells for a replicate bleach, regressed data by bleach
+    df_subsample3 <- df_subsample2  %>%
+      dplyr::group_by(replicate_num, strain) %>%
+      dplyr::mutate(mean_lifespan_days = mean(lifespan_days),
+                    mean_int_b_activity = mean(w_int_b_activity),
+                    mean_int_s_activity = mean(w_int_s_activity),
+                    mean_lifespan_days_regressed = mean(lifespan_days_regressed),
+                    mean_int_b_activity_regressed = mean(w_int_b_activity_regressed), 
+                    mean_int_s_activity_regressed = mean(w_int_s_activity_regressed)) %>%
+      dplyr::ungroup()
+    
+    #shape data to fit into H2 function properly 
+    df_subsample4 <- df_subsample3 %>%
+      dplyr::select(replicate_num, strain, mean_lifespan_days,
+                    mean_int_b_activity, mean_int_s_activity, mean_lifespan_days_regressed,
+                    mean_int_b_activity_regressed, mean_int_s_activity_regressed) %>%
+      dplyr::distinct(replicate_num, strain, .keep_all = TRUE) %>%
+      tidyr::gather(trait, phenotype, -strain, -replicate_num) %>%
+      dplyr::ungroup() %>%
+      dplyr::select(-replicate_num)
+
+    # run heritability
+    h2_traits_temp <- df_subsample4 %>%
+      dplyr::group_by(trait) %>%
+      dplyr::do(broom::tidy(H2.test(.))) %>%
+      dplyr::rename(H2 = x) %>%
+      dplyr::mutate(sample_size = n, 
+                    run = i)
+
+    #join H2 table together 
+    h2_table_good_blocks_one_worMotel <- bind_rows(h2_table_temp, h2_traits_temp)
+    h2_table_temp <- h2_table_good_blocks_one_worMotel 
+  }}
+
+#Broad Sense Heritability, subsampling n worms from each strain in all 4 blocks
+
+broad_sense_heritability_subsampling_block3 <- ggplot(h2_table_good_blocks_one_worMotel) +
+  geom_point(aes(x = sample_size, y = H2), alpha = 0.5, size = 1) +
+  theme_light() +
+  facet_wrap(~trait, nrow = 2) +
+  ylim(0,1) +
+  labs(x="worms per strain in worMotel", y="Heritability", colour = "", title = "") +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"))
+broad_sense_heritability_subsampling_block3
+```
+<br>
+Sampled a single worm motel from blocks 3 and 4. The sampled worMotel had 5-20 worms per strain. H2 calculated from the two block means.
+
+## Sample four blocks with one worMotel each 
+```{r, echo=FALSE, warning=FALSE}
+# calculate heritability for ratio
+n_range = c(3:20)
+h2_table_all_blocks_one_worMotel <- data.frame(trait=character(),
+                       H2 = double(),
+                       sample_size = numeric(), 
+                       run = numeric()) 
+h2_table_temp <- data.frame(trait=character(),
+                       H2 = double(),
+                       sample_size = numeric(), 
+                       run = numeric()) 
+
+for (n in n_range){
+  for (i in 1:10){
+    #subsample from raw dataset, n number of worms per strain per worMotel per Block. 
+    df_subsample1 <- full_dat %>%
+      dplyr::mutate(worm = as.numeric(paste0(plate_num, worm_num))) %>%
+      dplyr::select(-plate_num, -worm_num) %>%
+      dplyr::group_by(replicate_num, strain) %>%
+      sample_n(size = n, replace = FALSE) %>%
+      dplyr::ungroup()
+     
+    #regress out block effect 
+    df_subsample2 <- df_subsample1 %>% 
+      dplyr::filter(!is.na(lifespan_days)) %>% #Filter out missing data worms
+      dplyr::mutate(lifespan_days_regressed = residuals(lm(lifespan_days ~ replicate_num)),
+                    w_int_b_activity_regressed = residuals(lm(w_int_b_activity ~ replicate_num)),
+                    w_int_s_activity_regressed = residuals(lm(w_int_s_activity ~ replicate_num)))
+                    
+    #calculate means of all subsampled wells for a replicate bleach, regressed data by bleach
+    df_subsample3 <- df_subsample2  %>%
+      dplyr::group_by(replicate_num, strain) %>%
+      dplyr::mutate(mean_lifespan_days = mean(lifespan_days),
+                    mean_int_b_activity = mean(w_int_b_activity),
+                    mean_int_s_activity = mean(w_int_s_activity),
+                    mean_lifespan_days_regressed = mean(lifespan_days_regressed),
+                    mean_int_b_activity_regressed = mean(w_int_b_activity_regressed), 
+                    mean_int_s_activity_regressed = mean(w_int_s_activity_regressed)) %>%
+      dplyr::ungroup()
+    
+    #shape data to fit into H2 function properly 
+    df_subsample4 <- df_subsample3 %>%
+      dplyr::select(replicate_num, strain, mean_lifespan_days,
+                    mean_int_b_activity, mean_int_s_activity, mean_lifespan_days_regressed,
+                    mean_int_b_activity_regressed, mean_int_s_activity_regressed) %>%
+      dplyr::distinct(replicate_num, strain, .keep_all = TRUE) %>%
+      tidyr::gather(trait, phenotype, -strain, -replicate_num) %>%
+      dplyr::ungroup() %>%
+      dplyr::select(-replicate_num)
+
+    # run heritability
+    h2_traits_temp <- df_subsample4 %>%
+      dplyr::group_by(trait) %>%
+      dplyr::do(broom::tidy(H2.test(.))) %>%
+      dplyr::rename(H2 = x) %>%
+      dplyr::mutate(sample_size = n, 
+                    run = i)
+
+    #join H2 table together 
+    h2_table_all_blocks_one_worMotel <- bind_rows(h2_table_temp, h2_traits_temp)
+    h2_table_temp <- h2_table_all_blocks_one_worMotel 
+  }}
+
+#Broad Sense Heritability, subsampling n worms from each strain in all 4 blocks
+
+broad_sense_heritability_all_blocks_one_worMotel <- ggplot(h2_table_all_blocks_one_worMotel) +
+  geom_point(aes(x = sample_size, y = H2), alpha = 0.5, size = 1) +
+  theme_light() +
+  facet_wrap(~trait, nrow = 2) +
+  ylim(0,1) +
+  labs(x="worms per strain in worMotel", y="Heritability", colour = "", title = "") +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"))
+broad_sense_heritability_all_blocks_one_worMotel
+```
+<br>
+Sampled a single worm motel from all blocks. The sampled worMotel had 3-20 worms per strain. H2 calculated from the block means.

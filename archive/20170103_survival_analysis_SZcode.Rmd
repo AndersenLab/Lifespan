@@ -1,0 +1,337 @@
+---
+title: "20160727_SoukasStarvation"
+author: "Erik Andersen"
+date: "July 27, 2016"
+output: html_document
+---
+
+Chris Webster, PD in Soukas lab, ran three groups of wild strains through his starvation survival assay. The processing of the data are below.
+
+```{r, echo=F, warning = F, message=F}
+library(rio)
+library(ggplot2)
+library(dplyr)
+library(survival)
+library(flexsurv)
+```
+
+#### Read in data
+```{r}
+df1 <- import("~/Dropbox/AndersenLab/Collaborations/StarvationSurvival/Group1WildIsolatesStarvation050416.xlsx")
+df2 <- import("~/Dropbox/AndersenLab/Collaborations/StarvationSurvival/20160812_E group 2.csv") 
+df3 <- import("~/Dropbox/AndersenLab/Collaborations/StarvationSurvival/Group 3 isolates.xlsx")
+
+names(df2) <- names(df1)
+names(df3) <- names(df1)
+
+```
+
+#### Rename wild strains 
+```{r}
+
+#N2 has three replicates and CB4855 and CB4858 need to be renamed to drop parentheticals
+
+df1$strain <- ifelse(grepl("N2", df1$strain), "N2", df1$strain)
+df1$strain <- ifelse(grepl("ECA248", df1$strain), "ECA248", df1$strain)
+df1$strain <- ifelse(grepl("ECA252", df1$strain), "ECA252", df1$strain)
+
+df2$strain <- ifelse(grepl("N2", df2$strain), "N2", df2$strain)
+df2$strain <- ifelse(grepl("ECA248", df2$strain), "ECA248", df2$strain)
+df2$strain <- ifelse(grepl("ECA252", df2$strain), "ECA252", df2$strain)
+
+df3$strain <- ifelse(grepl("N2", df3$strain), "N2", df3$strain)
+
+```
+
+#### Process data to get fraction alive from each aliquot on each day
+#### Then, summarize data for each strain
+```{r}
+df1 <- df1 %>% mutate(frac.alive = 1 - dead / (dead + alive))
+
+proc.df1 <- df1 %>% dplyr::group_by(day, strain) %>%
+  dplyr::summarize(m.frac.alive = mean(frac.alive, na.rm=T),
+            sd.frac.alive = sd(frac.alive, na.rm=T))
+
+#One data point at the end of assay is wrong - AB1 on day 32 is 48.8 alive. Alive and dead are switched. I changed back in original file.
+
+df2 <- df2 %>% mutate(frac.alive = 1 - dead / (dead + alive))
+
+proc.df2 <- df2 %>% dplyr::group_by(day, strain) %>%
+  dplyr::summarize(m.frac.alive = mean(frac.alive, na.rm=T),
+            sd.frac.alive = sd(frac.alive, na.rm=T))
+
+df3 <- df3 %>% mutate(frac.alive = 1 - dead / (dead + alive))
+
+proc.df3 <- df3 %>% group_by(day, strain) %>%
+  dplyr::summarize(m.frac.alive = mean(frac.alive, na.rm=T),
+            sd.frac.alive = sd(frac.alive, na.rm=T))
+
+```
+
+
+#### Plots of survival data
+```{r}
+ggplot(proc.df1) +
+  aes(x=day, y=m.frac.alive, color=strain) +
+  geom_line() +
+  labs(x="Day", y="Fraction alive") +
+  theme(legend.position = "none")
+
+ggplot(proc.df1 %>% dplyr::filter(grepl("N2", strain) | grepl("CB4856", strain))) +
+  aes(x=day, y=m.frac.alive, color=strain) +
+  geom_line() +
+  labs(x="Day", y="Fraction alive", title = "N2 and CB replicates") +
+  theme(legend.position = "none")
+
+ggplot(proc.df2) +
+  aes(x=day, y=m.frac.alive, color=strain) +
+  geom_line() +
+  labs(x="Day", y="Fraction alive") +
+  theme(legend.position = "none")
+
+ggplot(proc.df2 %>% dplyr::filter(grepl("N2", strain) | grepl("CB4856", strain))) +
+  aes(x=day, y=m.frac.alive, color=strain) +
+  geom_line() +
+  labs(x="Day", y="Fraction alive", title = "N2 and CB replicates") +
+  theme(legend.position = "none")
+
+ggplot(proc.df3) +
+  aes(x=day, y=m.frac.alive, color=strain) +
+  geom_line() +
+  labs(x="Day", y="Fraction alive") +
+  theme(legend.position = "none")
+
+ggplot(proc.df3 %>% dplyr::filter(grepl("N2", strain) | grepl("CB4856", strain))) +
+  aes(x=day, y=m.frac.alive, color=strain) +
+  geom_line() +
+  labs(x="Day", y="Fraction alive", title = "N2 and CB replicates") +
+  theme(legend.position = "none")
+
+# There are large block effects in this assay. N2 is 17.5 in assay #1,  22.5 days in assay #2, 15 days in assay #3. Same goes for CB4856 (18, 22.5, 12.5). 
+
+```
+
+#### Combine three data sets
+```{r}
+
+df1$grp <- factor(1)
+df2$grp <- factor(2)
+df3$grp <- factor(3)
+
+df <- rbind(df1, df2, df3)
+
+proc.df <- df %>% dplyr::group_by(day, strain) %>%
+  dplyr::summarize(m.frac.alive = mean(frac.alive, na.rm=T),
+            sd.frac.alive = sd(frac.alive, na.rm=T))
+
+
+```
+
+#### Extract traits for mappings
+```{r}
+# Ryans way
+# well_gompertz <- function(input, df) {
+#   sum(((100 * 100 ^ ((input[1] / input[2]) * (1 - exp(input[2] * df$day)))) - df$m.frac.alive) ^ 2)
+# }
+# 
+# draw_gompertz <- function(Aparam, Gparam) {
+#   return((100 * 100 ^ ((Aparam / Gparam) * (1 - exp(Gparam * times)))))
+# }
+# 
+# 
+# test <- proc.df %>%
+#   dplyr::filter(strain == "JU360")%>%
+#   na.omit()
+# 
+# 
+# well_params.df <- data.frame(test, Aparam = 0, Gparam = 0, minimum = 0)
+# 
+# 
+# temp <- nlm(well_gompertz, c(0.01, 0.06), well_params.df)
+# well_params.df$Aparam<- temp[["estimate"]][1]
+# well_params.df$Gparam <- temp[["estimate"]][2]
+# well_params.df$minimum <- temp[["minimum"]][1]
+# 
+# times <- seq(0,.02,.00001)
+# plot(draw_gompertz(92.1,5.5),x=times)
+# 
+
+# traits_m <- proc.df%>%
+#   dplyr::select(-sd.frac.alive)%>%
+#   tidyr::spread(day, m.frac.alive)
+# 
+# traits_m[is.na(traits_m)] <- 0
+# 
+# pr_traits_m <- process_pheno(traits_m)
+# 
+# maps <- gwas_mappings(pr_traits_m)
+# 
+# maps$trait <- gsub("X","",maps$trait)
+# 
+# pr_maps <- process_mappings(maps,pr_traits_m)
+
+```
+
+```{r}
+# initialize a list to fill up
+ec50 <- list()
+
+for(s in 1:length(unique(proc.df$strain))){
+  # filter larger data set to contain just one strain
+  alive <- proc.df %>%
+    dplyr::filter(strain == unique(proc.df$strain)[s])%>%
+    na.omit()
+  
+  # ggplot(alive)+aes(x=day,y = m.frac.alive)+geom_line()+facet_wrap(~strain)
+
+  # calculate how many worms died one each day
+  alive.pr <- alive%>%
+    group_by(strain)%>%
+    # mutate(sm.alive = rollmean(x = m.frac.alive, k = 6, align = "right", fill = 1))%>%
+    mutate(n_dead = round(100-(100*m.frac.alive)))%>%
+    mutate(died.today = n_dead - lag(n_dead,default = n_dead[1]))
+  
+  # transform data for survival analysis
+  survival.transformed <- list()
+  for(i in 1:nrow(alive.pr)){
+    if(alive.pr$died.today[i] > 0){
+      survival.transformed[[i]] <- data.frame(time = rep(alive.pr$day[i],alive.pr$died.today[i]), event = 1)
+    }
+  }
+  
+  # bind list
+  survival.transformed <- bind_rows(survival.transformed)
+  
+  # make survival data structure
+  n2 <- Surv(survival.transformed$time,survival.transformed$event)
+  
+  weib <- (flexsurvreg(n2 ~ 1,dist='weibull',data=survival.transformed))
+  gomp <- (flexsurvreg(n2 ~ 1,dist='gompertz',data=survival.transformed))
+
+  
+  # fit survival data
+  n2_survfit = survfit(n2 ~ 1)
+
+  first.day.dead <- dplyr::filter(alive.pr, n_dead !=0) # find first day where strain death occurs
+  all.dead <- dplyr::filter(alive.pr, n_dead == 100) # find day where all animals are dead
+  
+  # deal with strains where 100% death doesnt occur... takes last day
+  if(nrow(all.dead) == 0){
+    all.dead <- data.frame(alive.pr)[nrow(alive.pr),]
+  }
+  
+    med.surv <- data.frame(strain =unique(proc.df$strain)[s],
+                         med.surv = broom::glance(n2_survfit)[7],
+                         first.day.dead = first.day.dead$day[1],
+                         first.day.dead.frac = first.day.dead$m.frac.alive[1],
+                         all.dead = all.dead$day[1],
+                         all.dead.frac = all.dead$m.frac.alive[1],
+                         weib.shape.par = weib[["opt"]]$par[1], 
+                         weib.scale.par = weib[["opt"]]$par[2],
+                         gomp.shape.par = gomp[["opt"]]$par[1], 
+                         gomp.rate.par = gomp[["opt"]]$par[2])
+  
+  ec50[[s]] <- med.surv
+}
+
+# put it all together
+med.surv.df <- bind_rows(ec50)
+
+# get slope from first death to all death
+
+med.surv.df.pr1 <- med.surv.df %>%
+  mutate(first.last.sl = (first.day.dead.frac - all.dead.frac)/(all.dead - first.day.dead), # slope between first death and last death
+         first.med.sl = (first.day.dead.frac - .50)/(median - first.day.dead), # slope between first death and median death
+         med.last.sl = (.50 - all.dead.frac)/(all.dead - median )) # slope between median and last death
+
+# cegwas pipeline
+pr.phen <- process_pheno(med.surv.df.pr1)
+
+maps <- gwas_mappings(pr.phen)
+
+pr_maps <- process_mappings(maps,pr.phen,)
+manplot(pr_maps)
+
+genes <- process_correlations(variant_correlation(dplyr::filter(pr_maps, trait != "all.dead.frac"),quantile_cutoff_high = .5,condition_trait = F))
+pr_genes <- dplyr::distinct(genes, CHROM,POS,.keep_all=T)
+
+write.table(med.surv.df.pr1,"~/Dropbox/AndersenLab/LabFolders/Stefan/Collaborations/starvation_survival/20161017_procmaps_fit_pheno.csv",
+            quote=FALSE, sep=",", row.names = F)
+save(pr_maps, file = "~/Dropbox/AndersenLab/LabFolders/Stefan/Collaborations/starvation_survival/20161017_procmaps_fit_params.Rda")
+save(genes, file = "~/Dropbox/AndersenLab/LabFolders/Stefan/Collaborations/starvation_survival/20161017_genes_fit_params.Rda")
+
+```
+
+
+```{r}
+ref_ii_gomprate <- c("N2","JU1400","LSJ1","JU1586","ECA36","JU1568","JU394","JU2522")
+alt_ii_gomprate <- c("LKC34","JU1530","ED3005","NIC272","NIC256","DL238","JU1580","NIC271","JU2526")
+
+
+
+generate_surv_fits <- function(strain_list, distribution = "gompertz"){
+  
+  ref_plots <- list()
+  
+  for(s in 1:length(unique(strain_list))){
+  # filter larger data set to contain just one strain
+  alive <- proc.df %>%
+    dplyr::filter(strain == unique(strain_list)[s])%>%
+    na.omit()
+  
+  # ggplot(alive)+aes(x=day,y = m.frac.alive)+geom_line()+facet_wrap(~strain)
+
+  # calculate how many worms died one each day
+  alive.pr <- alive%>%
+    group_by(strain)%>%
+    # mutate(sm.alive = rollmean(x = m.frac.alive, k = 6, align = "right", fill = 1))%>%
+    mutate(n_dead = round(100-(100*m.frac.alive)))%>%
+    mutate(died.today = n_dead - lag(n_dead,default = n_dead[1]))
+  
+  # transform data for survival analysis
+  survival.transformed <- list()
+  for(i in 1:nrow(alive.pr)){
+    if(alive.pr$died.today[i] > 0){
+      survival.transformed[[i]] <- data.frame(time = rep(alive.pr$day[i],alive.pr$died.today[i]), event = 1)
+    }
+  }
+  
+  # bind list
+  survival.transformed <- bind_rows(survival.transformed)
+  
+  # make survival data structure
+  n2 <- Surv(survival.transformed$time,survival.transformed$event)
+  
+  gomp <- (flexsurvreg(n2 ~ 1,dist=distribution,data=survival.transformed))
+
+  ref_plots[[s]] <- gomp
+}
+return(ref_plots)
+}
+
+refpl <- generate_surv_fits(ref_ii_gomprate)
+altpl <- generate_surv_fits(alt_ii_gomprate)
+
+plot(NULL, xlim=c(0,40), ylim=c(0,1), ylab="Survival", xlab="Day",main = "Gompertz Survival Fits \n Red = REF :: Blue = ALT @ Chromosome II peak")
+for(i in 1:length(refpl)){
+  lines(refpl[[i]])
+}
+
+for(i in 1:length(altpl)){
+  lines(altpl[[i]], col = "blue")
+}
+
+refpl <- generate_surv_fits(ref_ii_gomprate, distribution = "weibull")
+altpl <- generate_surv_fits(alt_ii_gomprate, distribution = "weibull")
+
+plot(NULL, xlim=c(0,40), ylim=c(0,1), ylab="Survival", xlab="Day",main = "Weibull Survival Fits \n Red = REF :: Blue = ALT @ Chromosome II peak")
+for(i in 1:length(refpl)){
+  lines(refpl[[i]])
+}
+
+for(i in 1:length(altpl)){
+  lines(altpl[[i]], col = "blue")
+}
+
+```
+

@@ -1,0 +1,503 @@
+---
+title: "WorMotel Heritability with activity levels"
+author: "Tim C."
+date: "1/19/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+This code uses processed survival data from Chris Fang-Yen's lab to calcualte heritability of survival traits. The data were collected with WorMotel in winter 2017 by Matt Churgin at UPenn.  
+
+```{r, echo=F, warning = F, message=F}
+library(rio)
+library(ggplot2)
+library(dplyr)
+library(survival)
+library(flexsurv)
+library(broom)
+library(minpack.lm)
+library(forcats)
+try(setwd(dirname(rstudioapi::getActiveDocumentContext()$path)))
+```
+
+#### Read in data and define functions
+```{r}
+df <- as.data.frame(read.csv(file = "20170116_FullProcessed.csv", header = T))
+
+glimpse(df)
+
+# define heritability test
+H2.test <- function(data){
+  
+  pheno <- as.data.frame(dplyr::select(data, phenotype))[,1]
+  strain <- as.factor(data$strain)
+  
+  reffMod <- lme4::lmer(pheno ~ 1 + (1|strain))
+  
+  Variances <- as.data.frame(lme4::VarCorr(reffMod, comp = "Variance"))
+  
+  Vg <- Variances$vcov[1]
+  Ve <- Variances$vcov[2]
+  H2 <- Vg/(Vg+Ve)
+  
+  return(H2)
+}
+
+# remove outliers function
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- NA
+  y[x > (qnt[2] + H)] <- NA
+  y
+}
+```
+<br>
+Each bio_rep is treated as a block for the following analysis. Technical replicates are ignored.
+<br>
+
+###ANALYSIS 1: Focus on activity levels within block 1 across all timepoints
+```{r, echo = F}
+# reshaping data and adding stim - base activity
+df_proc <- df %>%
+  dplyr::filter(!is.na(life_span), !is.na(activity)) %>%
+  dplyr::select(-tech_rep) %>%
+  dplyr::rename(block = bio_rep) %>%
+  tidyr::spread(activity_type, activity) %>%
+  dplyr::mutate(abstim = stim-base)
+
+# further reshape
+new_df <- df_proc %>%
+  dplyr::filter(block ==1, time_d <= 22) %>%
+  dplyr::select(-abstim, -life_span) %>%
+  dplyr::mutate(strain = as.character(strain)) %>%
+  tidyr::gather(trait, phenotype, -block, -strain, -rep, -time_d) %>%
+  dplyr::group_by(strain, trait, time_d) %>%
+  dplyr::arrange(trait, strain, time_d) %>%
+  dplyr::mutate(nforH2 = n())
+
+activity <- ggplot(new_df) +
+  aes(x = strain, y = phenotype, colour = factor(strain)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = .25, alpha = 0.5) +
+  ylim(0, 500) +
+  facet_grid(trait~time_d, scales = "free_y") +
+  theme_grey() +
+  labs(x="Time (d)", y="Activity level", colour = "strain", title = "FIGURE 1: Block 1 activity levels" ) +
+  theme(legend.position = "bottom", axis.text.x = element_blank(), axis.ticks.x = element_blank()) 
+activity
+```
+<br>
+JU775 appears to retain higher activity levels compared to other strains at later timepoints. I'm concerned about calculating heritability for these timepoints however because the number of nematodes observed is 1 for some strains at day 19 and day 22. I'll do the calculation anyway and see what we get.
+<br>
+
+#### Heritability for activity levels at different timepoints within block 1
+```{r, echo = F}
+new_df <- df_proc %>%
+  dplyr::filter(block ==1, time_d <= 22) %>%
+  dplyr::select(-abstim, -life_span) %>%
+  dplyr::mutate(strain = as.character(strain)) %>%
+  tidyr::gather(trait, phenotype, -block, -strain, -rep, -time_d) %>%
+  dplyr::group_by(trait, time_d) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x)
+
+H2_plot <- ggplot(new_df) +
+  aes(x = time_d, y = H2) +
+  facet_wrap(~trait) +
+  geom_point() +
+  theme_classic() +
+  labs(title = "FIGURE 2: Heritability for activity traits") +
+  geom_line(y = 0.2, linetype="dashed", color="darkred")
+H2_plot
+
+```
+<br>
+We see very high heritability for activity traits at later timepoints. However, we have less than two replicates for some strains at the later time points. I'll try filtering timepoints to those containing at least 5 reps per strain.
+<br>
+
+#### Recalculate heritability on timepoints with at least 5 reps per strain
+```{r, echo = F}
+new_df <- df_proc %>%
+  dplyr::filter(block ==1, time_d < 19) %>%
+  dplyr::select(-abstim, -life_span) %>%
+  dplyr::mutate(strain = as.character(strain)) %>%
+  tidyr::gather(trait, phenotype, -block, -strain, -rep, -time_d) %>%
+  dplyr::group_by(trait, time_d) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x)
+
+H2_plot <- ggplot(new_df) +
+  aes(x = time_d, y = H2) +
+  facet_wrap(~trait) +
+  geom_point() +
+  theme_classic() +
+  labs(title = "FIGURE 3: Heritability for activity traits (5 reps / strain)") +
+  geom_line(y = 0.2, linetype="dashed", color="darkred")
+H2_plot
+
+```
+<br>
+Heritability is still high for activity traits at 17 days. Below is a more detailed plot of those timepoints.
+<br>
+
+####Heritability for time points with at lest 5 reps per strain
+```{r, echo = F}
+
+new_df <- df_proc %>%
+  dplyr::filter(block ==1, time_d %in% c("15", "17")) %>%
+  dplyr::select(-abstim, -life_span) %>%
+  dplyr::mutate(strain = as.character(strain)) %>%
+  tidyr::gather(trait, phenotype, -block, -strain, -rep, -time_d) %>%
+  dplyr::group_by(strain, trait, time_d) %>%
+  dplyr::arrange(trait, strain, time_d) %>%
+  dplyr::mutate(nforH2 = n())
+
+activity <- ggplot(new_df) +
+  aes(x = strain, y = phenotype, colour = factor(strain)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = .25, alpha = 0.5) +
+  ylim(0, 500) +
+  facet_grid(trait~time_d, scales = "free_y") +
+  theme_grey() +
+  labs(x="Time (d)", y="Activity level", colour = "strain", title = "FIGURE 4: Block 1 activity levels day 15 and 17" ) +
+  theme(legend.position = "bottom", axis.text.x = element_blank(), axis.ticks.x = element_blank()) 
+activity
+
+```
+<br>
+
+###ANALYSIS 1 CONCLUSIONS:
+<br>
+1) Heritability for both stim and base activity traits at day 17 exceeds the 0.2 threshold (Fig. 3).
+<br>
+2) The JU775 strain is likely driving heritability in activity traits since it maintains much higher activity levels at late timepoints (Fig. 4). 
+<br>
+3) The difference between stimulated and base activity is small for most individuals (Figs. 1, 4). Is this expected?
+<br>
+
+###ANALYSIS 2: Fit model to the drop in activity levels over time and calculate heritability on model parameters.
+<br>
+For now I'm moving on to fitting a curve to the decrease in activity levels over time. We might see high heritability in fit parameters. Outlier activity levels are filtered for this analysis.
+<br>
+
+```{r, echo = F}
+new_df <- df_proc %>%
+  tidyr::gather(trait, phenotype, -block, -strain, -rep, -time_d) %>%
+  dplyr::mutate(trait = ifelse(trait == "abstim", "stim - base", trait)) %>%
+  dplyr::group_by(trait, strain, time_d) %>%
+  dplyr::filter(trait != "life_span") %>%
+  dplyr::mutate(f_pheno = remove_outliers(phenotype))
+  
+activity <- ggplot(new_df) +
+  aes(x = time_d, y = f_pheno) +
+  geom_jitter(width = .25, alpha = 0.05) +
+  aes(colour = factor(strain)) +
+  geom_smooth() +
+  facet_grid(trait~strain, scales = "free_y") +
+  theme_classic() +
+  labs(x="Time (d)", y="Activity level (outliers removed)", title = "FIGURE 5: Loess fit to activity levels over time", colour = "block") +
+  theme(legend.position = "none")
+activity
+```
+<br>
+It looks like we may be able to fit curves to the acivity data, but it is noisy. The Loess fit looks similar to a Ricker function with an early hump and then exponential decay. Stim and base traits looks the most promising. Ricker function, f(x) = a*x*exp(1)^(b*x).
+<br>
+
+#### Testing fit of Ricker function to CB4856 data for each block
+```{r, echo=F}
+new_df <- df_proc %>%
+  tidyr::gather(trait, phenotype, -block, -strain, -rep, -time_d) %>%
+  dplyr::mutate(trait = ifelse(trait == "abstim", "stim - base", trait)) %>%
+  dplyr::group_by(trait, strain, time_d) %>%
+  dplyr::filter(trait != "life_span") %>%
+  #dplyr::mutate(f_pheno = remove_outliers(phenotype)) %>%
+  dplyr::filter(strain == "CB4856", trait == "stim")
+
+activity <- ggplot(new_df) +
+  aes(x = time_d, y = phenotype) +
+  geom_point() +
+  facet_wrap(~block, scales = "free") +
+  theme_classic() +
+  geom_smooth(aes(group = factor(block), colour = "Ricker"),
+              method = "nls", 
+              formula = y ~ a*x*exp(1)^(b*x),
+              method.args = list(start = c(a = 20, b = 0.1)), 
+              se = FALSE) +
+  labs(x="Time (d)", y="Activity level", title = "FIGURE 6: CB4856 stimulatived activity levels across blocks with Ricker fit") +
+  theme(legend.position = "none")
+activity
+
+```
+<br>
+Ricker model looks similar to loess fit for blocks 1-3. However, the shape of the fit is very different among the blocks. I'll extract `a` and `b` parameters from Ricker f(x) = a*x*exp(1)^(b*x) for each strain and each block then calculate heritability.
+<br>
+
+####Plotting raw Ricker fit parameters (a) and (b) for stim activity and base activity
+```{r, echo = F}
+# steup data and fit model. 'f(x) = a*x*exp(1)^(b*x)'
+new_df <- df_proc %>%
+  tidyr::gather(trait, phenotype, -block, -strain, -rep, -time_d) %>%
+  dplyr::filter(trait %in% c("base", "stim")) %>%
+  dplyr::group_by(block, strain, trait) %>%
+  dplyr::do(tidy(nlsLM(phenotype ~ a*time_d*exp(1)^(b*time_d),
+                    data = ., start = list(a=100,b=0.2), control = nls.lm.control(maxiter = 200))))
+  
+ricker <- ggplot(new_df) +
+  aes(x = strain, y = estimate) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(aes(color = factor(block)), width = .25) +
+  facet_wrap(trait ~ term, scales = "free") +
+  labs(title = "FIGURE 7: Ricker fit parameter estimates", y="parameter estimate", x = "", color = "block") +
+  theme_classic() +
+  theme(legend.position = "right")
+ricker
+```
+<br>
+Huge outliers coming from misfit model, mostly in block 6. I can filter these outlier parameter estimates and replot.
+<br>
+
+#### Ricker fit parameters with outliers removed
+```{r, echo=F}
+# steup data and fit model, then remove outliers. 'f(x) = a*x*exp(1)^(b*x)'
+new_df <- df_proc %>%
+  tidyr::gather(trait, phenotype, -block, -strain, -rep, -time_d) %>%
+  dplyr::filter(trait %in% c("base", "stim")) %>%
+  dplyr::group_by(block, strain, trait) %>%
+  dplyr::do(tidy(nlsLM(phenotype ~ a*time_d*exp(1)^(b*time_d),
+                    data = ., start = list(a=100,b=0.2), control = nls.lm.control(maxiter = 200)))) %>% 
+  dplyr::ungroup() %>%
+  dplyr::group_by(trait, term) %>% 
+  dplyr::mutate(f_estimate = remove_outliers(estimate))
+
+ricker <- ggplot(new_df) +
+  aes(x = strain, y = f_estimate) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(aes(color = factor(block)), width = .25) +
+  facet_wrap(trait ~ term, scales = "free") +
+  labs(title = "FIGURE 8: Ricker fit parameter estimates (outliers removed)", y="parameter estimate", x = "", color = "block") +
+  theme_classic() +
+  theme(legend.position = "right")
+ricker
+
+```
+<br>
+Outlier filtered data looks better. I'll calculate heritability with outlier filtered and block effect corrected data.
+<br>
+
+####Correct for block effect and plot residuals
+```{r, echo = T}
+# Process data for heritability calculation
+new_df <- df_proc %>%
+  tidyr::gather(trait, phenotype, -block, -strain, -rep, -time_d) %>%
+  dplyr::filter(trait %in% c("base", "stim")) %>%
+  dplyr::group_by(block, strain, trait) %>%
+  dplyr::do(tidy(nlsLM(phenotype ~ a*time_d*exp(1)^(b*time_d),
+                    data = ., start = list(a=100,b=0.2), control = nls.lm.control(maxiter = 200)))) %>% # Fit Ricker function to base activity and stim activity for each strain within each block
+  dplyr::ungroup() %>%
+  dplyr::group_by(trait, term) %>% 
+  dplyr::mutate(phenotype = remove_outliers(estimate)) %>% #identify and remove outliers
+  dplyr::ungroup() %>%
+  dplyr::filter(complete.cases(.)) %>% # remove outlier rows from data frame
+  dplyr::group_by(trait, term) %>%
+  dplyr::mutate(phenotype = residuals(lm(estimate ~ block)))  # regress out block effect
+  
+ricker <- ggplot(new_df) +
+  aes(x = strain, y = phenotype) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(aes(color = factor(block)), width = .25) +
+  facet_wrap(trait ~ term, scales = "free") +
+  labs(title = "FIGURE 9: Risidual ricker fit parameter estimates (outliers removed)", y="residual parameter estimate", x = "", color = "block") +
+  theme_classic() +
+  theme(legend.position = "right")
+ricker
+
+```
+<br>
+Differences among strains is most pronounced for the stimulated activity parameter `a` trait. The other traits do not appear to be as different across strains.
+<br>
+
+#### Calculating heritability on residual Ricker fit parameter estimates for base and stimulated activity
+```{r, echo=F}
+# plot heritability for each corrected trait
+new_h <- new_df %>%
+  dplyr::do(tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x) %>%
+  tidyr::unite(parameter, trait, term)
+
+herit_plot_corr <- ggplot(new_h) + 
+  aes(x = parameter, y = H2) +
+  ylab("Corrected Heritability") +
+  scale_x_discrete(labels= c("base_a", "base_b", "stim_a", "stim_b")) +
+  ylim(0, .5) +
+  geom_point() +
+  labs(title = "FIGURE 10: Heritability of residual ricker fit parameter estimates") +
+  geom_hline(yintercept = .20, linetype="dashed", color="darkred")
+herit_plot_corr
+
+```
+<br>
+
+### ANALYSIS 2 CONCLUSIONS:
+<br>
+1) Ricker parameter estimates `a` and `b` are very different among blocks even for the same strain (Fig. 6)
+<br>
+2) After removing outliers and correcting for block effect, heritability is just 0.13 for the stim activity parameter `a` trait (Fig. 10).
+<br>
+
+### ANALYSIS 3: Focus on day 15 activity data alone
+<br>
+I'm interested in day 15 data because 5 of the 6 blocks share this timepoint and therefore we should have many replicates. The activity traits below are taken from day 15 worms. Block 3 did not have a day 15 timepoint so it is excluded
+<br>
+<strong>Base activity</strong> is the activity measure before stimulus light.<br>
+<strong>Stim activity</strong> is the activity level after stimulus light was applied.<br>
+<strong>stim - base activity</strong> is the difference between the two.<br>
+
+#### Plotting individual worm activity and life span traits for day 15
+```{r, echo=F, warning=FALSE}
+
+# Plotting activity data for day 15 
+
+# Find timepoints in common. day 15 has 5 blocks, use this to calculate heritability
+new_df <- df %>%
+  dplyr::distinct(bio_rep, time_d) %>%
+  dplyr::group_by(time_d) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::arrange(-n)
+
+# Selecting day 15 measures for 5 blocks 
+df_15 <- df_proc %>%
+    dplyr::filter(time_d == 15) %>%
+    dplyr::group_by(block) %>%
+    dplyr::distinct(block, strain, rep, .keep_all = T)
+
+# shape data for heritability
+df_15_gather <- df_15 %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-time_d) %>%
+  tidyr::gather(trait, phenotype, life_span, base, stim, abstim)
+
+# plot raw data for day 15 activity
+day15_plots <- ggplot(df_15_gather) +
+  aes(x = strain, y = phenotype) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(size = .25, width = .25, aes(colour = factor(block))) +
+  labs(title = "FIGURE 11: Raw day 15 activity levels", x="strain", y="activity levels", colour = "block") +
+  theme(legend.position = "right") +
+  facet_grid(trait ~ ., scales = "free") +
+  theme_classic()
+day15_plots
+```
+<br>
+Block 2 has some extreme values. I can filter these outliers and replot.
+<br>
+
+#### Filter outliers in day 15 activity and replot
+```{r, echo=F, warning=FALSE}
+
+# remove outliers from each trait group
+df_15_gather_f <- df_15_gather %>%
+  dplyr::group_by(strain, trait) %>%
+  dplyr::mutate(f_pheno = remove_outliers(phenotype)) %>%
+  dplyr::ungroup() %>%
+  dplyr::filter(complete.cases(.))
+
+day15_f_plots <- ggplot(df_15_gather_f) +
+  aes(x = strain, y = f_pheno) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(size = .25, width = .25, aes(colour = factor(block))) +
+  labs(title = "FIGURE 12: Day 15 activity levels (outliers removed)",x="strain", y="activity levels", colour = "block") +
+  theme(legend.position = "right") +
+  facet_grid(trait ~ ., scales = "free") +
+  theme_classic()
+day15_f_plots
+
+```
+<br>
+filtering outliers improves plot, but still no obvious differences among strains.
+<br>
+
+#### Calculate heritability for all day 15 activity traits with filtered outliers
+```{r, echo=F}
+# apply heritability test to all traits
+h_list_raw <- list()
+
+for(t in 1:length(unique(df_15_gather$trait))){
+  
+  trait_df_raw <- df_15_gather_f %>%
+    dplyr::select(-block) %>%
+    dplyr::ungroup() %>%
+    dplyr::filter(complete.cases(.)) %>%
+    dplyr::filter(trait == (unique(df_15_gather$trait)[t])) %>%
+    dplyr::mutate(H2 = H2.test(.))
+  
+  h_list_raw[[t]] <- trait_df_raw
+}
+
+df_15_raw<- dplyr::bind_rows(h_list_raw) %>%
+  dplyr::arrange(strain)
+
+# plot heritability for each trait
+
+herit_df_15_raw <- ggplot(df_15_raw%>%distinct(trait, .keep_all=T)) + 
+  aes(x = trait, y = H2) +
+  ylab("Heritability") +
+  scale_x_discrete(labels= c("stim - base", "base", "life_span", "stim")) +
+  ylim(0, .5) +
+  labs(title = "FIGURE 13: Heritability for day 15 activity traits (outliers removed)") +
+  geom_point() +
+  geom_hline(yintercept = .20, linetype="dashed", color="darkred")
+herit_df_15_raw
+
+```
+<br>
+Heritability is still low for day 15 traits, although base activity is near threshold of 0.2. I'll try correcting for block effects to see if this improves our heritability estimate.
+<br>
+
+#### Removing block effect and recalculating heritability on day 15 activity data
+```{r, echo=F}
+# regress out block effect
+df_15_corr <- df_15_gather_f %>%
+  dplyr::group_by(trait) %>%
+  dplyr::mutate(residual_phenotype = residuals(lm(f_pheno ~ block))) %>%
+  dplyr::select(-phenotype) %>%
+  dplyr::rename(phenotype = residual_phenotype) %>%
+  dplyr::ungroup()
+
+l_15_corr <- list()
+
+for(t in 1:length(unique(df_15_corr$trait))){
+  
+  trait_corr <- df_15_corr %>%
+    dplyr::select(-block) %>%
+    dplyr::filter(trait == (unique(df_15_corr$trait)[t])) %>%
+    dplyr::mutate(H2 = H2.test(.))
+  
+  l_15_corr[[t]] <- trait_corr
+}
+
+h_df_15_corr<- dplyr::bind_rows(l_15_corr) %>%
+  dplyr::arrange(strain)
+
+# plot heritability for each corrected trait
+herit_plot_corr <- ggplot(h_df_15_corr%>%distinct(trait, .keep_all=T)) + 
+  aes(x = trait, y = H2) +
+  ylab("Corrected Heritability") +
+  scale_x_discrete(labels= c("stim - base", "base", "life_span", "stim")) +
+  ylim(0, .5) +
+  labs(title = "FIGURE 14: Heritability for residual day 15 activity traits (outliers removed)") +
+  geom_point() +
+  geom_hline(yintercept = .20, linetype="dashed", color="darkred")
+herit_plot_corr
+```
+<br>
+Heritability is not improved. 
+<br>
+
+### ANALYSIS 3 CONCLUSIONS:
+<br>
+1) Heritability is below the 0.2 threshold for all day 15 activity traits (Fig. 14).
+<br>
+2) Correcting for block effect does not improve day 15 activity trait heritabilities, this is probably due to the fact that most of the data are taken from block 1 and block 2, which are most similar to each other (Fig. 12).
+<br>

@@ -1,0 +1,806 @@
+---
+title: "WorMotel lifespan Heritability"
+author: "Tim C."
+date: "5/29/2018"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+This code uses processed survival data from Chris Fang-Yen's lab to calculate heritability of survival traits. The data were collected with WorMotel in four replicate blocks by Matt Churgin at UPenn. Four independent bleaches of 12 strains (blocks) were run on 2-4 replicate wormmotels (20 nematodes / strain). 
+
+```{r, echo=F, warning = F, message=F}
+library(rio)
+library(ggplot2)
+library(dplyr)
+library(survival)
+library(flexsurv)
+library(broom)
+library(minpack.lm)
+library(forcats)
+library(glue)
+library(scales)
+library(boot)
+try(setwd(dirname(rstudioapi::getActiveDocumentContext()$path)))
+```
+
+```{r, echo=FALSE, warning=FALSE}
+# define heritability test
+# data is data frame that contains strain and phenotype column
+# indicies are used by the boot function to sample from the 'data' data.frame
+H2.test.boot <- function(data, indicies){
+
+  d <- data[indicies,]
+
+  pheno <- as.data.frame(dplyr::select(d, phenotype))[,1]
+  strain <- as.factor(d$strain)
+
+  reffMod <- lme4::lmer(pheno ~ 1 + (1|strain))
+
+  Variances <- as.data.frame(lme4::VarCorr(reffMod, comp = "Variance"))
+
+  Vg <- Variances$vcov[1]
+  Ve <- Variances$vcov[2]
+  H2 <- Vg/(Vg+Ve)
+
+  # errors <- sqrt(diag(lme4::VarCorr(reffMod, comp = "Variance")$strain))
+
+  return(H2)
+}
+# data is data frame that contains strain and phenotype column
+H2.test <- function(data){
+
+  pheno <- as.data.frame(dplyr::select(data, phenotype))[,1]
+  strain <- as.factor(data$strain)
+
+  reffMod <- lme4::lmer(pheno ~ 1 + (1|strain))
+
+  Variances <- as.data.frame(lme4::VarCorr(reffMod, comp = "Variance"))
+
+  Vg <- Variances$vcov[1]
+  Ve <- Variances$vcov[2]
+  H2 <- Vg/(Vg+Ve)
+
+  # errors <- sqrt(diag(lme4::VarCorr(reffMod, comp = "Variance")$strain))
+
+  return(H2)
+}
+
+# df is data frame that contains strain and phenotype column
+H2.calc <- function(df, boot = T){
+
+
+  if(boot == T){
+    # bootstrapping with 1000 replications
+    results <- boot(data=df, statistic=H2.test.boot, R=10000)
+
+    # get 95% confidence interval
+    ci <- boot.ci(results, type="bca")
+
+    H2_errors <- data.frame(H2 = ci$t0, ci_l = ci$bca[4], ci_r = ci$bca[5])
+
+    return(H2_errors)
+
+  } else {
+
+    H2 <- data.frame(H2 = H2.test(data = df), ci_l = NA, ci_r = NA)
+    return(H2)
+  }
+
+}
+
+
+# remove outliers function
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- NA
+  y[x > (qnt[2] + H)] <- NA
+  y
+}
+```
+
+## Trait heritability (all blocks)
+```{r, echo=FALSE, warnings=FALSE}
+# do block regression and calculate H2 for all traits.
+old_dat <- as.data.frame(read.csv(file = "/Users/tim/Documents/WorMotel/2017_Pilot1_Survival/20170116_FullProcessed.csv", header = T)) %>%
+  dplyr::rename(plate_num = bio_rep, replicate_num = tech_rep, worm_num = rep, lifespan_days = life_span, time_days = time_d) %>%
+  dplyr::mutate(dataset = "old")
+  
+new_dat <- as.data.frame(read.csv(file = "WildIsolateLSData_180515.csv", header = T)) %>%
+  dplyr::mutate(lifespan_days = ifelse(lifespan_days == "NaN", NA, lifespan_days),
+                plate_num = plate_num + 6,
+                replicate_num = replicate_num + 2,
+                activity_type = as.factor(ifelse(activity_type == -1, "stim", "base")),
+                dataset = "new",
+                activity = ifelse(activity == "NaN", NA, activity))
+
+full_dat <- dplyr::bind_rows(old_dat, new_dat)
+
+# ADD mean survival, fit weibull, add activity traits to full dataset.
+full_dat_proc <- full_dat %>%
+ dplyr::filter(!is.na(lifespan_days)) %>%
+  dplyr::group_by(replicate_num, plate_num, strain) %>%
+  dplyr::mutate(mean_ls = mean(lifespan_days),
+                cv_ls = sd(lifespan_days, na.rm = T)/ 
+   mean(lifespan_days, na.rm = T)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(plate_num = factor(plate_num),
+                replicate_num = factor(replicate_num),
+                worm_num = factor(worm_num),
+                dataset = factor(dataset))
+  
+
+# reshape data for survival object
+full_dat_w <- full_dat %>%
+  dplyr::distinct(strain, plate_num, worm_num, lifespan_days) %>%
+  dplyr::select(strain, plate_num, worm_num, lifespan_days) %>%
+  dplyr::mutate(status = ifelse(is.na(lifespan_days), 0, 1)) %>%
+  dplyr::mutate(plate_num = factor(plate_num))
+
+#Asign functions to calculate 90, 50, 10 percent survival times with Weibull model.
+weibull_50 <- function(shape, scale) {
+  qweibull(0.5, shape = shape, scale = scale)
+}
+weibull_10 <- function(shape, scale) {
+  qweibull(0.9, shape = shape, scale = scale)
+}
+weibull_90 <- function(shape, scale) {
+  qweibull(0.1, shape = shape, scale = scale)
+}
+
+# establish lists to populate with for loop
+block_list <- list()
+strain_list <- list()
+
+# Calculate weibull shape and scale parameters for all strains in each plate
+for(b in 1:length(unique(full_dat_w$plate_num))){
+  
+  block_df <- full_dat_w %>%
+    dplyr::filter(plate_num == (unique(full_dat_w$plate_num)[b]))
+
+  for(s in 1:length(unique(block_df$strain))){
+  
+    strain_df <- block_df %>%
+      dplyr::filter(strain == (unique(block_df$strain)[s]))
+    
+    if(sum(strain_df$status) != 0){
+    #run weibull fit and save parameters
+    w_fit = flexsurvreg(Surv(lifespan_days, status) ~ 1, dist = "weibull", data = strain_df)
+  
+    w_90 <- summary(w_fit, fn = weibull_90, t=1)
+  
+    w_50 <- summary(w_fit, fn = weibull_50, t=1)
+  
+    w_10 <- summary(w_fit, fn = weibull_10, t=1)
+  
+    strain_surv <- data.frame(plate_num = unique(block_df$plate_num),
+                  strain = unique(block_df$strain)[s],
+                  shape = w_fit[["res"]][1],
+                  scale = w_fit[["res"]][2],
+                  LT10 = w_90[[1]][2],
+                  LT50 = w_50[[1]][2],
+                  LT90 = w_10[[1]][2])
+    strain_surv <- strain_surv %>%
+      dplyr::rename('LT10' = est, 'LT50' = est.1, 'LT90' = est.2)
+
+    strain_list[[s]] <- strain_surv 
+
+    } else {
+      #fill in strain surv with NAs
+      strain_surv <- data.frame(plate_num = unique(block_df$plate_num),
+                  strain = unique(block_df$strain)[s],
+                  shape = NA,
+                  scale = NA,
+                  LT10 = NA,
+                  LT50 = NA,
+                  LT90 = NA)
+
+    strain_list[[s]] <- strain_surv 
+  }
+  }
+  
+  strain_df <- bind_rows(strain_list)
+  
+  block_list[[b]] <- strain_df
+}
+
+#combine all data
+full_h_df <- dplyr::bind_rows(block_list) 
+
+full_dat_proc_2 <- left_join(full_dat_proc, full_h_df)
+
+# All blocks with block regression and calculate H2. dropping second day 22.5 value from plates 11 and 12. Need to check with Matt if this is right thing to do. It appears 22.5 was measured twice. second value is usually 0 so maybe this one should be dropped.
+full_dat_proc_3 <- full_dat_proc_2 %>%
+  dplyr::group_by(strain, replicate_num, plate_num, activity_type, worm_num) %>%
+  dplyr::distinct(time_days, .keep_all = T) %>% # remove extra 22.5 days timepoint, may need to do this differently. Confirm with Matt Churgin
+  dplyr::ungroup() %>%
+  tidyr::spread(key = activity_type, value = activity) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(base_outliers = remove_outliers(base),
+                stim_outliers = remove_outliers(stim)) %>% # this is pretty aggressive trimming, can cut back to under 1000 maybe?
+  dplyr::group_by(replicate_num, plate_num, strain, worm_num) %>%
+  dplyr::mutate(w_int_b_activity =  sum(base_outliers, na.rm = T),
+                w_int_s_activity = sum(stim_outliers, na.rm = T),
+                w_norm_int_b_activity = (w_int_b_activity/lifespan_days),
+                w_norm_int_s_activity = (w_int_s_activity/lifespan_days)) %>%
+  dplyr::group_by(replicate_num, plate_num, strain) %>%
+  dplyr::mutate(mean_int_b_activity =  mean(w_int_b_activity, na.rm = T),
+                mean_int_s_activity = mean(w_int_s_activity, na.rm = T),
+                mean_norm_int_b_activity = (mean_int_b_activity/lifespan_days),
+                mean_norm_int_s_activity = (mean_int_b_activity/lifespan_days)) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-time_days, -base, -stim, -base_outliers, -stim_outliers, -dataset) %>%# removing unused time data
+  dplyr::distinct(strain, replicate_num, plate_num, worm_num, .keep_all = T) %>%
+  tidyr::gather(trait, phenotype, -strain, -replicate_num, -plate_num, -worm_num)
+
+# individual worm traits (5)
+ind_w_traits <- full_dat_proc_3 %>%
+  dplyr::filter(trait %in% c("lifespan_days", "w_int_b_activity", "w_int_s_activity", "w_norm_int_b_activity", "w_norm_int_s_activity")) %>%
+  dplyr::group_by(trait) %>%
+  dplyr::mutate(residual_phenotype = residuals(lm(phenotype ~ replicate_num))) %>%
+  dplyr::ungroup()
+
+# mean worMotel traits (11)
+mean_traits <- full_dat_proc_3 %>%
+  dplyr::filter(!trait %in% c("lifespan_days", "w_int_b_activity", "w_int_s_activity", "w_norm_int_b_activity", "w_norm_int_s_activity")) %>%
+  dplyr::distinct(strain, replicate_num, plate_num, trait, .keep_all = T) %>%
+  dplyr::select(-worm_num) %>%
+  dplyr::group_by(trait) %>%
+  dplyr::mutate(residual_phenotype = residuals(lm(phenotype ~ replicate_num))) %>%
+  dplyr::ungroup()
+
+
+# plot raw data for each individual trait without block regression
+ind_w_traits_plot <- ggplot(ind_w_traits) +
+  geom_jitter(aes(x=strain, y = phenotype, color = replicate_num), width = 0.25) +
+  geom_boxplot(aes(x=strain, y = phenotype), outlier.shape = NA, alpha = 0.25) +
+  facet_wrap(~trait, scales = "free") +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 8, color = "black"),
+        legend.text = element_text(size = 12, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  labs(title = "Individual traits", color = "block", x = "", y = "Phenotype")
+
+
+# plot raw data for each mean trait without block regression
+mean_traits_plot <- ggplot(mean_traits) +
+  geom_jitter(aes(x=strain, y = phenotype, color = replicate_num), width = 0.25, size = 0.5) +
+  geom_boxplot(aes(x=strain, y = phenotype), outlier.shape = NA, alpha = 0.25) +
+  facet_wrap(~trait, scales = "free") +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 8, color = "black"),
+        legend.text = element_text(size = 12, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  labs(title = "Fig 1: Traits", color = "block", x = "", y = "Value")
+mean_traits_plot
+
+# individual traits regress out block effect
+ind_w_traits_r_plot <- ggplot(ind_w_traits) +
+  geom_jitter(aes(x=strain, y = residual_phenotype, color = replicate_num), width = 0.25) +
+  geom_boxplot(aes(x=strain, y = residual_phenotype), outlier.shape = NA, alpha = 0.25) +
+  facet_wrap(~trait, scales = "free") +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 8, color = "black"),
+        legend.text = element_text(size = 12, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  labs(title = "Individual traits block regressed", color = "block", x = "", y = "residual_phenotype")
+
+
+# mean traitis regress out block effect
+mean_traits_r_plot <- ggplot(mean_traits) +
+  geom_jitter(aes(x=strain, y = residual_phenotype, color = replicate_num), width = 0.25, size = 0.5) +
+  geom_boxplot(aes(x=strain, y = residual_phenotype), outlier.shape = NA, alpha = 0.25) +
+  facet_wrap(~trait, scales = "free") +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 8, color = "black"),
+        legend.text = element_text(size = 12, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  labs(title = "Fig 2: Traits block regressed", color = "block", x = "", y = "residual_value")
+mean_traits_r_plot
+
+# calculate heritability for raw and block regressed traits
+H2_ind_traits <- ind_w_traits %>%
+  dplyr::select(-residual_phenotype) %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x) %>%
+  dplyr::ungroup()
+
+H2_ind_traits_r <- ind_w_traits %>%
+  dplyr::mutate(phenotype = residual_phenotype) %>%
+  dplyr::select(-residual_phenotype) %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x) %>%
+  dplyr::ungroup()
+
+H2_mean_traits <- mean_traits %>%
+  dplyr::select(-residual_phenotype) %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x)%>%
+  dplyr::ungroup()
+
+H2_mean_traits_r <- mean_traits %>%
+  dplyr::mutate(phenotype = residual_phenotype) %>%
+  dplyr::select(-residual_phenotype) %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x) %>%
+  dplyr::ungroup()
+
+# calculate per block (replicate number) then do heritability
+H2_mean_traits_block <- mean_traits %>%
+  dplyr::select(-residual_phenotype) %>%
+  dplyr::group_by(strain, replicate_num, trait) %>%
+  dplyr::mutate(phenotype = mean(phenotype)) %>%
+  dplyr::select(-plate_num) %>%
+  dplyr::distinct(strain, replicate_num, trait, .keep_all = T) %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x) %>%
+  dplyr::ungroup()
+
+H2_mean_traits_r_block <- mean_traits %>%
+  dplyr::mutate(phenotype = residual_phenotype) %>%
+  dplyr::select(-residual_phenotype) %>%
+  dplyr::group_by(strain, replicate_num, trait) %>%
+  dplyr::mutate(phenotype = mean(phenotype)) %>%
+  dplyr::select(-plate_num) %>%
+  dplyr::distinct(strain, replicate_num, trait, .keep_all = T) %>%
+  dplyr::group_by(trait)
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x) %>%
+  dplyr::ungroup()
+
+
+# plot heritability for all traits
+h2_ind_traits_plot <- ggplot() +
+  geom_point(data = H2_ind_traits, aes(x = trait, y = H2, color = "raw")) +
+  geom_point(data = H2_ind_traits_r, aes(x = trait, y = H2, color = "block regressed")) +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 8, color = "black"),
+        legend.text = element_text(size = 12, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  labs(title = "Individual traits", color = "", x = "", y = "Heritability")
+
+h2_mean_traits_plot <- ggplot() +
+  geom_jitter(data = H2_mean_traits, aes(x = trait, y = H2, color = "raw"), width = .1) +
+  geom_jitter(data = H2_mean_traits_r, aes(x = trait, y = H2, color = "block regressed"), width = .1) +
+  #geom_jitter(data = H2_mean_traits_r_block, aes(x = trait, y = H2, color = "plate means block regressed"), width = .1) +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 8, color = "black"),
+        legend.text = element_text(size = 12, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  labs(title = "Fig 3: Heritability of traits", color = "", x = "", y = "Heritability")
+h2_mean_traits_plot
+```
+<br>
+`cv_ls` = coefficient of variation for lifespan <br>
+`LT10` = time to 10% death <br>
+`LT50` = time to 50% death <br>
+`LT90` = time to 90% death <br>
+`mean_int_b_activity` = mean integrated base activity <br>
+`mean_int_s_activity` = mean integrated stimulated activity <br>
+`mean_ls = mean lifespan` <br>
+`mean_norm_int_b_activity` = mean integrated base activity / mean lifespan <br>
+`mean_norm_int_s_activity` = mean integrated stimulated activity / mean lifespan <br>
+`scale` = survival fit parameter <br>
+`shape` = survival fit parameter <br>
+
+## Trait heritability (blocks 3 and 4 only)
+```{r, echo=FALSE, warnings=FALSE}
+# filter to new dataset
+full_dat_proc_new <- full_dat_proc_2 %>%
+  dplyr::filter(dataset == "new") %>%
+  dplyr::group_by(strain, replicate_num, plate_num, activity_type, worm_num) %>%
+  dplyr::distinct(time_days, .keep_all = T) %>% # remove extra 22.5 days timepoint, may need to do this differently. Confirm with Matt Churgin
+  dplyr::ungroup() %>%
+  tidyr::spread(key = activity_type, value = activity) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(base_outliers = remove_outliers(base),
+                stim_outliers = remove_outliers(stim)) %>% # this is pretty aggressive trimming, can cut back to under 1000 maybe?
+  dplyr::group_by(replicate_num, plate_num, strain, worm_num) %>%
+  dplyr::mutate(w_int_b_activity =  sum(base_outliers, na.rm = T),
+                w_int_s_activity = sum(stim_outliers, na.rm = T),
+                w_norm_int_b_activity = (w_int_b_activity/lifespan_days),
+                w_norm_int_s_activity = (w_int_s_activity/lifespan_days)) %>%
+  dplyr::group_by(replicate_num, plate_num, strain) %>%
+  dplyr::mutate(mean_int_b_activity =  mean(w_int_b_activity, na.rm = T),
+                mean_int_s_activity = mean(w_int_s_activity, na.rm = T),
+                mean_norm_int_b_activity = (mean_int_b_activity/lifespan_days),
+                mean_norm_int_s_activity = (mean_int_b_activity/lifespan_days)) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-time_days, -base, -stim, -base_outliers, -stim_outliers, -dataset) %>%# removing unused time data
+  dplyr::distinct(strain, replicate_num, plate_num, worm_num, .keep_all = T) %>%
+  tidyr::gather(trait, phenotype, -strain, -replicate_num, -plate_num, -worm_num)
+
+# mean worMotel traits (11)
+mean_traits_new <- full_dat_proc_new %>%
+  dplyr::filter(!trait %in% c("lifespan_days", "w_int_b_activity", "w_int_s_activity", "w_norm_int_b_activity", "w_norm_int_s_activity")) %>%
+  dplyr::distinct(strain, replicate_num, plate_num, trait, .keep_all = T) %>%
+  dplyr::select(-worm_num) %>%
+  dplyr::group_by(trait) %>%
+  dplyr::mutate(residual_phenotype = residuals(lm(phenotype ~ replicate_num))) %>%
+  dplyr::ungroup()
+
+# plot raw data for each mean trait without block regression
+mean_traits_new_plot <- ggplot(mean_traits_new) +
+  geom_jitter(aes(x=strain, y = phenotype, color = replicate_num), width = 0.25, size = 0.5) +
+  geom_boxplot(aes(x=strain, y = phenotype), outlier.shape = NA, alpha = 0.25) +
+  facet_wrap(~trait, scales = "free") +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 8, color = "black"),
+        legend.text = element_text(size = 12, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  labs(title = "Fig 4: Traits", color = "block", x = "", y = "Value")
+mean_traits_new_plot
+
+# mean traitis regress out block effect
+mean_traits_new_r_plot <- ggplot(mean_traits_new) +
+  geom_jitter(aes(x=strain, y = residual_phenotype, color = replicate_num), width = 0.25, size = 0.5) +
+  geom_boxplot(aes(x=strain, y = residual_phenotype), outlier.shape = NA, alpha = 0.25) +
+  facet_wrap(~trait, scales = "free") +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 8, color = "black"),
+        legend.text = element_text(size = 12, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  labs(title = "Fig 5: Traits block regressed", color = "block", x = "", y = "residual_value")
+mean_traits_new_r_plot
+
+#heritability for new
+H2_mean_traits_new <- mean_traits_new %>%
+  dplyr::select(-residual_phenotype) %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x)%>%
+  dplyr::ungroup()
+
+H2_mean_traits_new_r <- mean_traits_new %>%
+  dplyr::mutate(phenotype = residual_phenotype) %>%
+  dplyr::select(-residual_phenotype) %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x) %>%
+  dplyr::ungroup()
+
+# calculate per block (replicate number) then do heritability
+H2_mean_traits_new_block <- mean_traits_new %>%
+  dplyr::select(-residual_phenotype) %>%
+  dplyr::group_by(strain, replicate_num, trait) %>%
+  dplyr::mutate(phenotype = mean(phenotype)) %>%
+  dplyr::select(-plate_num) %>%
+  dplyr::distinct(strain, replicate_num, trait, .keep_all = T) %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x) %>%
+  dplyr::ungroup()
+
+H2_mean_traits_r_new_block <- mean_traits_new %>%
+  dplyr::mutate(phenotype = residual_phenotype) %>%
+  dplyr::select(-residual_phenotype) %>%
+  dplyr::group_by(strain, replicate_num, trait) %>%
+  dplyr::mutate(phenotype = mean(phenotype)) %>%
+  dplyr::select(-plate_num) %>%
+  dplyr::distinct(strain, replicate_num, trait, .keep_all = T) %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x) %>%
+  dplyr::ungroup()
+
+#drop N2 and test again
+#heritability for new
+H2_mean_traits_new_no_n2 <- mean_traits_new %>%
+  dplyr::select(-residual_phenotype) %>%
+  dplyr::filter(strain != "N2") %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x)%>%
+  dplyr::ungroup()
+
+H2_mean_traits_new_r_no_n2 <- mean_traits_new %>%
+  dplyr::mutate(phenotype = residual_phenotype) %>%
+  dplyr::select(-residual_phenotype) %>%
+  dplyr::filter(strain != "N2") %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x) %>%
+  dplyr::ungroup()
+
+# plot heritability 
+h2_mean_traits_new_plot <- ggplot() +
+  geom_jitter(data = H2_mean_traits_new, aes(x = trait, y = H2, color = "raw"), width = .1) +
+  geom_jitter(data = H2_mean_traits_new_r, aes(x = trait, y = H2, color = "block regressed"), width = .1) +
+  #geom_jitter(data = H2_mean_traits_r_new_block, aes(x = trait, y = H2, color = "plate means block regressed"), width = .1) +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 8, color = "black"),
+        legend.text = element_text(size = 12, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  labs(title = "Fig 6: Heritability of traits (all strains)", color = "", x = "", y = "Heritability")
+h2_mean_traits_new_plot
+
+# plot heritability no N2 
+h2_mean_traits_new_no_n2_plot <- ggplot() +
+  geom_jitter(data = H2_mean_traits_new_no_n2, aes(x = trait, y = H2, color = "raw"), width = .1) +
+  geom_jitter(data = H2_mean_traits_new_r_no_n2, aes(x = trait, y = H2, color = "block regressed"), width = .1) +
+  #geom_jitter(data = H2_mean_traits_r_new_block, aes(x = trait, y = H2, color = "plate means block regressed"), width = .1) +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 8, color = "black"),
+        legend.text = element_text(size = 12, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  labs(title = "Fig 7: Heritability of traits (N2  excluded)", color = "", x = "", y = "Heritability")
+h2_mean_traits_new_no_n2_plot
+```
+<br>
+1) Restricting analysis to new data only results in higher H2 values (Fig. 3 vs. Fig. 6). <br>
+2) N2 is driving the high heritability of `cv_ls` and `shape` traits (Fig. 6 vs. Fig. 7). <br>
+3) JU775 and DL238 have high integrated activity traits (Fig. 5). This is consistent with observations in the past. <br>
+4) How can we best normalize activity traits to capture healthspan? Normalization by mean_lifespan seems odd.
+
+## Subsampling within blocks
+Randomly subsample a single worMotel for each block 10 times and calculate H2 w/ block regression.<br><br>
+```{r, echo=FALSE, warnings=FALSE}
+# subsample single worMotel for each block 10 times and calculate H2
+dat_subsample <- full_dat_proc_2 %>%
+  dplyr::group_by(strain, replicate_num, plate_num, activity_type, worm_num) %>%
+  dplyr::distinct(time_days, .keep_all = T) %>% # remove extra 22.5 days timepoint, may need to do this differently. Confirm with Matt Churgin
+  dplyr::ungroup() %>%
+  tidyr::spread(key = activity_type, value = activity) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(base_outliers = remove_outliers(base),
+                stim_outliers = remove_outliers(stim)) %>%# this is pretty aggressive trimming, can cut back to under 1000 maybe?
+  dplyr::group_by(replicate_num, plate_num, strain, worm_num) %>%
+  dplyr::mutate(w_int_b_activity =  sum(base_outliers, na.rm = T),
+                w_int_s_activity = sum(stim_outliers, na.rm = T),
+                w_norm_int_b_activity = (w_int_b_activity/lifespan_days),
+                w_norm_int_s_activity = (w_int_s_activity/lifespan_days)) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-time_days, -base, -stim, -base_outliers, -stim_outliers, -dataset, -lifespan_days) %>% # removing unused time data
+  dplyr::distinct(strain, replicate_num, plate_num, worm_num, .keep_all = T) %>%
+  dplyr::group_by(replicate_num, plate_num, strain) %>%
+  dplyr::mutate(mean_int_b_activity =  mean(w_int_b_activity, na.rm = T),
+                mean_int_s_activity = mean(w_int_s_activity, na.rm = T),
+                mean_norm_int_b_activity = mean(w_norm_int_b_activity),
+                mean_norm_int_s_activity = mean(w_norm_int_s_activity)) %>%
+  dplyr::select(-w_int_b_activity, -w_int_s_activity, -w_norm_int_b_activity, -w_norm_int_s_activity, -worm_num) %>%
+  dplyr::distinct(strain, replicate_num, plate_num, .keep_all = T) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(plate_num = case_when(
+                                      plate_num == "3" ~ 1,
+                                      plate_num == "5" ~ 2,
+                                      plate_num == "1" ~ 1,
+                                      plate_num == "2" ~ 2,
+                                      plate_num == "4" ~ 3,
+                                      plate_num == "6" ~ 4,
+                                      plate_num == "7" ~ 1,
+                                      plate_num == "8" ~ 2,
+                                      plate_num == "9" ~ 3,
+                                      plate_num == "10" ~ 1,
+                                      plate_num == "11" ~ 2,
+                                      plate_num == "12" ~ 3))
+
+
+# attempt at subsampling
+random_plates <- as.data.frame(cbind(as.vector(sample(1:2, 100, replace=T)),
+            as.vector(sample(1:4, 100, replace=T)),
+             as.vector(sample(1:3, 100, replace=T)),
+            as.vector(sample(1:3, 100, replace=T)))) %>% # only allowing plate 1 for this rep b/c samples missing. Need to fix
+  distinct() %>%
+  .[1:10,]
+
+ss1 <- dat_subsample %>%
+  dplyr::filter((replicate_num == "1" & plate_num == random_plates$V1[1]) |
+                (replicate_num == "2" & plate_num == random_plates$V2[1]) |
+                (replicate_num == "3" & plate_num == random_plates$V3[1]) |
+                (replicate_num == "4" & plate_num == random_plates$V4[1])) %>%
+  dplyr::mutate(sample = 1)
+ss2 <- dat_subsample %>%
+  dplyr::filter((replicate_num == "1" & plate_num == random_plates$V1[2]) |
+                (replicate_num == "2" & plate_num == random_plates$V2[2]) |
+                (replicate_num == "3" & plate_num == random_plates$V3[2]) |
+                (replicate_num == "4" & plate_num == random_plates$V4[2])) %>%
+  dplyr::mutate(sample = 2)
+ss3 <- dat_subsample %>%
+  dplyr::filter((replicate_num == "1" & plate_num == random_plates$V1[3]) |
+                (replicate_num == "2" & plate_num == random_plates$V2[3]) |
+                (replicate_num == "3" & plate_num == random_plates$V3[3]) |
+                (replicate_num == "4" & plate_num == random_plates$V4[3])) %>%
+  dplyr::mutate(sample = 3)
+ss4 <- dat_subsample %>%
+  dplyr::filter((replicate_num == "1" & plate_num == random_plates$V1[4]) |
+                (replicate_num == "2" & plate_num == random_plates$V2[4]) |
+                (replicate_num == "3" & plate_num == random_plates$V3[4]) |
+                (replicate_num == "4" & plate_num == random_plates$V4[4])) %>%
+  dplyr::mutate(sample = 4)
+ss5 <- dat_subsample %>%
+  dplyr::filter((replicate_num == "1" & plate_num == random_plates$V1[5]) |
+                (replicate_num == "2" & plate_num == random_plates$V2[5]) |
+                (replicate_num == "3" & plate_num == random_plates$V3[5]) |
+                (replicate_num == "4" & plate_num == random_plates$V4[5])) %>%
+  dplyr::mutate(sample = 5)
+ss6 <- dat_subsample %>%
+  dplyr::filter((replicate_num == "1" & plate_num == random_plates$V1[6]) |
+                (replicate_num == "2" & plate_num == random_plates$V2[6]) |
+                (replicate_num == "3" & plate_num == random_plates$V3[6]) |
+                (replicate_num == "4" & plate_num == random_plates$V4[6])) %>%
+  dplyr::mutate(sample = 6)
+ss7 <- dat_subsample %>%
+  dplyr::filter((replicate_num == "1" & plate_num == random_plates$V1[7]) |
+                (replicate_num == "2" & plate_num == random_plates$V2[7]) |
+                (replicate_num == "3" & plate_num == random_plates$V3[7]) |
+                (replicate_num == "4" & plate_num == random_plates$V4[7])) %>%
+  dplyr::mutate(sample = 7)
+ss8 <- dat_subsample %>%
+  dplyr::filter((replicate_num == "1" & plate_num == random_plates$V1[8]) |
+                (replicate_num == "2" & plate_num == random_plates$V2[8]) |
+                (replicate_num == "3" & plate_num == random_plates$V3[8]) |
+                (replicate_num == "4" & plate_num == random_plates$V4[8])) %>%
+  dplyr::mutate(sample = 8)
+ss9 <- dat_subsample %>%
+  dplyr::filter((replicate_num == "1" & plate_num == random_plates$V1[9]) |
+                (replicate_num == "2" & plate_num == random_plates$V2[9]) |
+                (replicate_num == "3" & plate_num == random_plates$V3[9]) |
+                (replicate_num == "4" & plate_num == random_plates$V4[9])) %>%
+  dplyr::mutate(sample = 9)
+ss10 <- dat_subsample %>%
+  dplyr::filter((replicate_num == "1" & plate_num == random_plates$V1[10]) |
+                (replicate_num == "2" & plate_num == random_plates$V2[10]) |
+                (replicate_num == "3" & plate_num == random_plates$V3[10]) |
+                (replicate_num == "4" & plate_num == random_plates$V4[10])) %>%
+  dplyr::mutate(sample = 10)
+
+# calculate heritability on subsampled data
+ss_all_gather <- bind_rows(ss1, ss2, ss3, ss4, ss5, ss6, ss7, ss8, ss9, ss10) %>%
+  dplyr::group_by(sample) %>%
+  dplyr::mutate(mean_ls = residuals(lm(mean_ls ~ replicate_num)),
+                cv_ls = residuals(lm(cv_ls ~ replicate_num)),
+                shape = residuals(lm(shape ~ replicate_num)),
+                scale = residuals(lm(scale ~ replicate_num)),
+                LT10 = residuals(lm(LT10 ~ replicate_num)),
+                LT50 = residuals(lm(LT50 ~ replicate_num)),
+                LT90 = residuals(lm(LT90 ~ replicate_num)),
+                mean_int_b_activity = residuals(lm(mean_int_b_activity ~ replicate_num)),
+                mean_int_s_activity = residuals(lm(mean_int_s_activity ~ replicate_num)),
+                mean_norm_int_b_activity = residuals(lm(mean_norm_int_b_activity ~ replicate_num)),
+                mean_norm_int_s_activity = residuals(lm(mean_norm_int_s_activity ~ replicate_num))) %>%
+  dplyr::group_by(strain, sample) %>%
+  tidyr::gather(trait, phenotype, -strain, -replicate_num, -plate_num, -sample) 
+  
+ss_all_h2 <- ss_all_gather %>%
+  dplyr::group_by(sample, trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x) %>%
+  dplyr::ungroup()
+
+# plot phenotypes
+subsample_plot_1 <- ggplot(ss_all_gather %>% dplyr::filter(sample == 1)) +
+  geom_jitter(aes(x=strain, y = phenotype, color = as.factor(replicate_num)), width = 0.25, size = 0.5) +
+  geom_boxplot(aes(x=strain, y = phenotype), outlier.shape = NA, alpha = 0.25) +
+  facet_wrap(~trait, scales = "free") +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 8, color = "black"),
+        legend.text = element_text(size = 12, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  labs(title = "Randomly sample single worMotel from each block (1)", color = "block", x = "", y = "value")
+
+
+
+
+#plot heritability on subsampled data
+h2_subsample_plot <- ggplot(ss_all_h2) +
+  geom_jitter(aes(x=trait, y = H2, color = as.factor(sample)), width = 0.25) +
+  geom_boxplot(aes(x=trait, y = H2), outlier.shape = NA, alpha = 0.25) +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  labs(title = "Fig. 8: Subsample single worMotel from each block (10 times)", color = "subsample", x = "", y = "Heritability")
+h2_subsample_plot
+
+```
+<br>
+1) Are we better off with a single worMotel per block? <br>
+2) Other subsampling strategies? Inference for each?
+
+
+## 24-well Assay
+These data are from 24-well plates not worMotels. I believe 20 L4 nematodes were added to each well; there are two replicate wells for each strain in a block.<br><br>
+**lifespan** = This is an estimate based on 2% of total stimulated activity remaining in a particular well.<br>
+**healthspan** = Similar to lifespan but for base activity?<br><br>
+```{r, echo=FALSE, warning=FALSE}
+# read in survival data from 24-well plates
+dat_24 <- as.data.frame(read.csv(file = "/Users/tim/Documents/WorMotel/20180517_Assays1_6/AllDataLongFormat_WildIsolate24wellplateLifespan.csv", header = T)) %>%
+  dplyr::rename(plate_num = Plate.Number,
+                strain = Genotype,
+                well = Well.Number,
+                lifespan = Lifespan.Estimate..Days.,
+                healthspan = Healthspan.Estimate..Days.,
+                activity_type = Activity.Type,
+                time_days = Time.Point..Days.,
+                activity = Activity) %>%
+  dplyr::mutate(activity_type = ifelse(activity_type == -1, "stim", "base")) %>%
+  tidyr::spread(activity_type, activity)
+  
+dat_24_proc <- dat_24 %>%
+  dplyr::distinct(plate_num, strain, well, .keep_all = T) %>%
+  dplyr::select(-time_days, -base, -stim) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(residual_ls = residuals(lm(lifespan ~ plate_num)),
+                residual_hs = residuals(lm(healthspan ~ plate_num))) %>%
+  tidyr::gather(trait, phenotype, -plate_num, -strain, -well)
+
+  
+# plot traits
+traits_24_facet <- ggplot(dat_24_proc %>% dplyr::filter(trait != "residual_hs", trait != "residual_ls")) +
+  geom_jitter(aes(x=strain, y = phenotype, color = as.factor(plate_num)), width = 0.25, size = 2) +
+  geom_boxplot(aes(x=strain, y = phenotype), outlier.shape = NA, alpha = 0.25) +
+  facet_wrap(~trait, scales = "free") +
+  theme_light() +
+  theme(title = element_text(size = 16, color = "black", face = "bold"),
+        axis.title = element_text(size = 16, color = "black", face = "bold"),
+        axis.text = element_text(size = 16, color = "black"),
+        legend.text = element_text(size = 16, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+        strip.text.x = element_text(size = 16, colour = "black")) + 
+  labs(title = "24_well traits", color = "block", x = "", y = "Value")
+traits_24_facet
+
+ggsave('figure/24well_phenotypes.pdf', width = 12, height = 8)
+ggsave('figure/24well_phenotypes.png', width = 12, height = 8)
+
+# calculate heritability for all traits
+dat_24_proc_h2 <- dat_24_proc %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x)%>%
+  dplyr::ungroup()
+
+# plot heritabilities
+dat_24_proc_h2_plot <- ggplot(dat_24_proc_h2 %>% dplyr::filter(trait != "residual_hs", trait != "residual_ls")) +
+  geom_point(aes(x = trait, y = H2), size = 5) +
+  ylim(0,1) +
+  theme_light() +
+  theme(title = element_text(size = 16, color = "black", face = "bold"),
+        axis.title = element_text(size = 16, color = "black", face = "bold"),
+        axis.text = element_text(size = 16, color = "black"),
+        legend.text = element_text(size = 16, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  labs(title = "Heritability for 24_well traits", color = "", x = "", y = "Heritability")
+dat_24_proc_h2_plot
+
+ggsave('figure/24well_phenotypes.pdf', width = 12, height = 8)
+ggsave('figure/24well_phenotypes.png', width = 12, height = 8)
+
+```
+<br>
+1) Heritability is HIGH for lifespan and healthspan! <br>
+2) Very small block effect, regressing out this effect does not improve heritability by much. <br>
+3) How well do these values relate to actual lifespan? How much does that matter?

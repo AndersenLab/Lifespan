@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<!-- saved from url=(0063)https://rviews.rstudio.com/2017/09/25/survival-analysis-with-r/ -->
+<html lang="en-us" class=""><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><script type="text/javascript" async="" src="./20180103_Survival Analysis with R_files/analytics.js"></script>
+    <title>Survival Analysis with R · R Views</title>
+    <meta name="generator" content="Hugo 0.19">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <meta name="author" content="R Views">
+    
+      <meta name="description" content="An R community blog edited by RStudio">
+    
+    
+    <link rel="canonical" href="https://rviews.rstudio.com/2017/09/25/survival-analysis-with-r/">
+    <link rel="icon" href="https://rviews.rstudio.com/favicon.png">
+    <link rel="apple-touch-icon" href="https://rviews.rstudio.com/apple-touch-icon.png">
+    <link rel="stylesheet" href="./20180103_Survival Analysis with R_files/style.css">
+    <link rel="stylesheet" href="./20180103_Survival Analysis with R_files/font-awesome.min.css">
+    <link href="./20180103_Survival Analysis with R_files/github.min.css" rel="stylesheet" type="text/css">
+    <link rel="stylesheet" href="./20180103_Survival Analysis with R_files/jquery.fancybox.css">
+    
+    <link href="./20180103_Survival Analysis with R_files/css" rel="stylesheet" type="text/css">
+    <link href="./20180103_Survival Analysis with R_files/css(1)" rel="stylesheet" type="text/css">
+    <meta property="og:title" content="Survival Analysis with R">
+<meta property="og:description" content="With roots dating back to at least 1662 when John Graunt, a London merchant, published an extensive set of inferences based on mortality records, survival analysis is one of the oldest subfields of Statistics [1]. Basic life-table methods, including techniques for dealing with censored data, were discovered before 1700 [2], and in the early eighteenth century, the old masters - de Moivre working on annuities, and Daniel Bernoulli studying competing risks for the analysis of smallpox inoculation - developed the modern foundations of the field [2].">
+<meta property="og:type" content="article">
+<meta property="og:url" content="/2017/09/25/survival-analysis-with-r/">
+
+
+
+<meta property="article:published_time" content="2017-09-25T00:00:00+00:00">
+<meta property="article:modified_time" content="2017-09-25T00:00:00+00:00">
+
+
+
+
+
+
+
+
+
+
+
+    
+    
+<meta itemprop="name" content="Survival Analysis with R">
+<meta itemprop="description" content="With roots dating back to at least 1662 when John Graunt, a London merchant, published an extensive set of inferences based on mortality records, survival analysis is one of the oldest subfields of Statistics [1]. Basic life-table methods, including techniques for dealing with censored data, were discovered before 1700 [2], and in the early eighteenth century, the old masters - de Moivre working on annuities, and Daniel Bernoulli studying competing risks for the analysis of smallpox inoculation - developed the modern foundations of the field [2].">
+
+
+<meta itemprop="dateModified" content="2017-09-25T00:00:00+00:00">
+<meta itemprop="wordCount" content="3145">
+
+
+
+<meta itemprop="keywords" content="applications,book-review,community,data-science,databases,education,engineering,events,finance,interview,news,opinion,packages,r,r-for-the-enterprise,r-language,r-language---rmarkdown,r-languages,r-packages,r-user-groups,reproducibility,reproducible-finance-with-r,rstudio,shiny,sparklyr,statistics,time-series,tips-and-tricks,visualizations,admins,automation,barug,bigkrls,chapman-university,classification-models,climate-change,co2-emissions,complex-systems,containers,control-systems,convex-optimization,cran,cran-task-views,cvxr-package,data,data-flow-programming,data-science,data-sources,data-wrangling,data.world,databases,datafest,dbi,dbplyr,deep-learning,dplyr,drivers,dygraphs,earthquake,efficient-programming,electrical-engineering,event,excel,finance,flexdashboard,forecasting,ggplot2,google-forms,health-care,highcharter,ide,internal-r-package,internet,jsm,keras,linux,maps,matrix-regularization,medicine,mexico-city,missing-values,networks,neural-networks,new-packages,new-r-packages,ny-r-conference-2017,object-oriented-language,odbc,packages,padr-package,phylogenetic-trees,population-modeling,portfolio-skewness,production,quandl,r,r-/-finance-2017,r-conferences,r-consortium,r-language,r-markdown,r-packages,r-user-groups,random-forests,risk,rmarkdown,rstudio,rstudioconf2018,seagate,sharpe-ratio,shiny,shinydashboard,singularity,sparklyr,stocks,streaming-data,survey,survival-analysis,survival-trees,tensorflow,tidyquant,tidyverse,time-series,top-40-new-packages,topological-data-analysis,visualization,wordr,">
+
+    
+
+  <meta name="twitter:card" content="summary">
+
+
+
+<meta name="twitter:text:title" content="Survival Analysis with R">
+<meta name="twitter:title" content="Survival Analysis with R">
+<meta name="twitter:description" content="With roots dating back to at least 1662 when John Graunt, a London merchant, published an extensive set of inferences based on mortality records, survival analysis is one of the oldest subfields of Statistics [1]. Basic life-table methods, including techniques for dealing with censored data, were discovered before 1700 [2], and in the early eighteenth century, the old masters - de Moivre working on annuities, and Daniel Bernoulli studying competing risks for the analysis of smallpox inoculation - developed the modern foundations of the field [2].">
+<meta name="twitter:site" content="@rstudio">
+
+    <script type="text/javascript" async="" src="./20180103_Survival Analysis with R_files/analytics.min.js"></script><script type="text/javascript">
+  !function(){var analytics=window.analytics=window.analytics||[];if(!analytics.initialize)if(analytics.invoked)window.console&&console.error&&console.error("Segment snippet included twice.");else{analytics.invoked=!0;analytics.methods=["trackSubmit","trackClick","trackLink","trackForm","pageview","identify","reset","group","track","ready","alias","debug","page","once","off","on"];analytics.factory=function(t){return function(){var e=Array.prototype.slice.call(arguments);e.unshift(t);analytics.push(e);return analytics}};for(var t=0;t<analytics.methods.length;t++){var e=analytics.methods[t];analytics[e]=analytics.factory(e)}analytics.load=function(t){var e=document.createElement("script");e.type="text/javascript";e.async=!0;e.src=("https:"===document.location.protocol?"https://":"http://")+"cdn.segment.com/analytics.js/v1/"+t+"/analytics.min.js";var n=document.getElementsByTagName("script")[0];n.parentNode.insertBefore(e,n)};analytics.SNIPPET_VERSION="4.0.0";
+  analytics.load("2cEm9XH4zmCNSiZE3dggl0thtI239L3e");
+  analytics.page();
+  }}();
+</script>
+
+
+    
+    <script src="./20180103_Survival Analysis with R_files/jquery.min.js"></script>
+<script type="text/javascript" async="" src="./20180103_Survival Analysis with R_files/embed.js"></script><link rel="preload" as="style" href="https://c.disquscdn.com/next/embed/styles/lounge.1c973af76c6535955110c0c9d8551865.css"><link rel="preload" as="script" href="https://c.disquscdn.com/next/embed/common.bundle.8edffe1405dcc2d5eb5ee9d96a2866d1.js"><link rel="preload" as="script" href="https://c.disquscdn.com/next/embed/lounge.bundle.8d07a4869c3ec17ee1881ae6bd353027.js"><link rel="preload" as="script" href="https://disqus.com/next/config.js"><style type="text/css">.fancybox-margin{margin-right:15px;}</style><link id="mktoForms2BaseStyle" rel="stylesheet" type="text/css" href="./20180103_Survival Analysis with R_files/forms2.css"><link id="mktoForms2ThemeStyle" rel="stylesheet" type="text/css" href="./20180103_Survival Analysis with R_files/forms2-theme-plain.css"><link id="mktoFontUrl" rel="stylesheet" type="text/css" href="./20180103_Survival Analysis with R_files/css(2)"><style>/* Add your custom CSS below */
+</style><style type="text/css">.MathJax_Hover_Frame {border-radius: .25em; -webkit-border-radius: .25em; -moz-border-radius: .25em; -khtml-border-radius: .25em; box-shadow: 0px 0px 15px #83A; -webkit-box-shadow: 0px 0px 15px #83A; -moz-box-shadow: 0px 0px 15px #83A; -khtml-box-shadow: 0px 0px 15px #83A; border: 1px solid #A6D ! important; display: inline-block; position: absolute}
+.MathJax_Menu_Button .MathJax_Hover_Arrow {position: absolute; cursor: pointer; display: inline-block; border: 2px solid #AAA; border-radius: 4px; -webkit-border-radius: 4px; -moz-border-radius: 4px; -khtml-border-radius: 4px; font-family: 'Courier New',Courier; font-size: 9px; color: #F0F0F0}
+.MathJax_Menu_Button .MathJax_Hover_Arrow span {display: block; background-color: #AAA; border: 1px solid; border-radius: 3px; line-height: 0; padding: 4px}
+.MathJax_Hover_Arrow:hover {color: white!important; border: 2px solid #CCC!important}
+.MathJax_Hover_Arrow:hover span {background-color: #CCC!important}
+</style><style type="text/css">#MathJax_About {position: fixed; left: 50%; width: auto; text-align: center; border: 3px outset; padding: 1em 2em; background-color: #DDDDDD; color: black; cursor: default; font-family: message-box; font-size: 120%; font-style: normal; text-indent: 0; text-transform: none; line-height: normal; letter-spacing: normal; word-spacing: normal; word-wrap: normal; white-space: nowrap; float: none; z-index: 201; border-radius: 15px; -webkit-border-radius: 15px; -moz-border-radius: 15px; -khtml-border-radius: 15px; box-shadow: 0px 10px 20px #808080; -webkit-box-shadow: 0px 10px 20px #808080; -moz-box-shadow: 0px 10px 20px #808080; -khtml-box-shadow: 0px 10px 20px #808080; filter: progid:DXImageTransform.Microsoft.dropshadow(OffX=2, OffY=2, Color='gray', Positive='true')}
+#MathJax_About.MathJax_MousePost {outline: none}
+.MathJax_Menu {position: absolute; background-color: white; color: black; width: auto; padding: 5px 0px; border: 1px solid #CCCCCC; margin: 0; cursor: default; font: menu; text-align: left; text-indent: 0; text-transform: none; line-height: normal; letter-spacing: normal; word-spacing: normal; word-wrap: normal; white-space: nowrap; float: none; z-index: 201; border-radius: 5px; -webkit-border-radius: 5px; -moz-border-radius: 5px; -khtml-border-radius: 5px; box-shadow: 0px 10px 20px #808080; -webkit-box-shadow: 0px 10px 20px #808080; -moz-box-shadow: 0px 10px 20px #808080; -khtml-box-shadow: 0px 10px 20px #808080; filter: progid:DXImageTransform.Microsoft.dropshadow(OffX=2, OffY=2, Color='gray', Positive='true')}
+.MathJax_MenuItem {padding: 1px 2em; background: transparent}
+.MathJax_MenuArrow {position: absolute; right: .5em; padding-top: .25em; color: #666666; font-size: .75em}
+.MathJax_MenuActive .MathJax_MenuArrow {color: white}
+.MathJax_MenuArrow.RTL {left: .5em; right: auto}
+.MathJax_MenuCheck {position: absolute; left: .7em}
+.MathJax_MenuCheck.RTL {right: .7em; left: auto}
+.MathJax_MenuRadioCheck {position: absolute; left: .7em}
+.MathJax_MenuRadioCheck.RTL {right: .7em; left: auto}
+.MathJax_MenuLabel {padding: 1px 2em 3px 1.33em; font-style: italic}
+.MathJax_MenuRule {border-top: 1px solid #DDDDDD; margin: 4px 3px}
+.MathJax_MenuDisabled {color: GrayText}
+.MathJax_MenuActive {background-color: #606872; color: white}
+.MathJax_MenuDisabled:focus, .MathJax_MenuLabel:focus {background-color: #E8E8E8}
+.MathJax_ContextMenu:focus {outline: none}
+.MathJax_ContextMenu .MathJax_MenuItem:focus {outline: none}
+#MathJax_AboutClose {top: .2em; right: .2em}
+.MathJax_Menu .MathJax_MenuClose {top: -10px; left: -10px}
+.MathJax_MenuClose {position: absolute; cursor: pointer; display: inline-block; border: 2px solid #AAA; border-radius: 18px; -webkit-border-radius: 18px; -moz-border-radius: 18px; -khtml-border-radius: 18px; font-family: 'Courier New',Courier; font-size: 24px; color: #F0F0F0}
+.MathJax_MenuClose span {display: block; background-color: #AAA; border: 1.5px solid; border-radius: 18px; -webkit-border-radius: 18px; -moz-border-radius: 18px; -khtml-border-radius: 18px; line-height: 0; padding: 8px 0 6px}
+.MathJax_MenuClose:hover {color: white!important; border: 2px solid #CCC!important}
+.MathJax_MenuClose:hover span {background-color: #CCC!important}
+.MathJax_MenuClose:hover:focus {outline: none}
+</style><style type="text/css">.MathJax_Preview .MJXf-math {color: inherit!important}
+</style><style type="text/css">.MJX_Assistive_MathML {position: absolute!important; top: 0; left: 0; clip: rect(1px, 1px, 1px, 1px); padding: 1px 0 0 0!important; border: 0!important; height: 1px!important; width: 1px!important; overflow: hidden!important; display: block!important; -webkit-touch-callout: none; -webkit-user-select: none; -khtml-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none}
+.MJX_Assistive_MathML.MJX_Assistive_MathML_Block {width: 100%!important}
+</style><style type="text/css">#MathJax_Zoom {position: absolute; background-color: #F0F0F0; overflow: auto; display: block; z-index: 301; padding: .5em; border: 1px solid black; margin: 0; font-weight: normal; font-style: normal; text-align: left; text-indent: 0; text-transform: none; line-height: normal; letter-spacing: normal; word-spacing: normal; word-wrap: normal; white-space: nowrap; float: none; -webkit-box-sizing: content-box; -moz-box-sizing: content-box; box-sizing: content-box; box-shadow: 5px 5px 15px #AAAAAA; -webkit-box-shadow: 5px 5px 15px #AAAAAA; -moz-box-shadow: 5px 5px 15px #AAAAAA; -khtml-box-shadow: 5px 5px 15px #AAAAAA; filter: progid:DXImageTransform.Microsoft.dropshadow(OffX=2, OffY=2, Color='gray', Positive='true')}
+#MathJax_ZoomOverlay {position: absolute; left: 0; top: 0; z-index: 300; display: inline-block; width: 100%; height: 100%; border: 0; padding: 0; margin: 0; background-color: white; opacity: 0; filter: alpha(opacity=0)}
+#MathJax_ZoomFrame {position: relative; display: inline-block; height: 0; width: 0}
+#MathJax_ZoomEventTrap {position: absolute; left: 0; top: 0; z-index: 302; display: inline-block; border: 0; padding: 0; margin: 0; background-color: white; opacity: 0; filter: alpha(opacity=0)}
+</style><style type="text/css">.MathJax_Preview {color: #888}
+#MathJax_Message {position: fixed; left: 1em; bottom: 1.5em; background-color: #E6E6E6; border: 1px solid #959595; margin: 0px; padding: 2px 8px; z-index: 102; color: black; font-size: 80%; width: auto; white-space: nowrap}
+#MathJax_MSIE_Frame {position: absolute; top: 0; left: 0; width: 0px; z-index: 101; border: 0px; margin: 0px; padding: 0px}
+.MathJax_Error {color: #CC0000; font-style: italic}
+</style><style type="text/css">.MJXp-script {font-size: .8em}
+.MJXp-right {-webkit-transform-origin: right; -moz-transform-origin: right; -ms-transform-origin: right; -o-transform-origin: right; transform-origin: right}
+.MJXp-bold {font-weight: bold}
+.MJXp-italic {font-style: italic}
+.MJXp-scr {font-family: MathJax_Script,'Times New Roman',Times,STIXGeneral,serif}
+.MJXp-frak {font-family: MathJax_Fraktur,'Times New Roman',Times,STIXGeneral,serif}
+.MJXp-sf {font-family: MathJax_SansSerif,'Times New Roman',Times,STIXGeneral,serif}
+.MJXp-cal {font-family: MathJax_Caligraphic,'Times New Roman',Times,STIXGeneral,serif}
+.MJXp-mono {font-family: MathJax_Typewriter,'Times New Roman',Times,STIXGeneral,serif}
+.MJXp-largeop {font-size: 150%}
+.MJXp-largeop.MJXp-int {vertical-align: -.2em}
+.MJXp-math {display: inline-block; line-height: 1.2; text-indent: 0; font-family: 'Times New Roman',Times,STIXGeneral,serif; white-space: nowrap; border-collapse: collapse}
+.MJXp-display {display: block; text-align: center; margin: 1em 0}
+.MJXp-math span {display: inline-block}
+.MJXp-box {display: block!important; text-align: center}
+.MJXp-box:after {content: " "}
+.MJXp-rule {display: block!important; margin-top: .1em}
+.MJXp-char {display: block!important}
+.MJXp-mo {margin: 0 .15em}
+.MJXp-mfrac {margin: 0 .125em; vertical-align: .25em}
+.MJXp-denom {display: inline-table!important; width: 100%}
+.MJXp-denom > * {display: table-row!important}
+.MJXp-surd {vertical-align: top}
+.MJXp-surd > * {display: block!important}
+.MJXp-script-box > *  {display: table!important; height: 50%}
+.MJXp-script-box > * > * {display: table-cell!important; vertical-align: top}
+.MJXp-script-box > *:last-child > * {vertical-align: bottom}
+.MJXp-script-box > * > * > * {display: block!important}
+.MJXp-mphantom {visibility: hidden}
+.MJXp-munderover {display: inline-table!important}
+.MJXp-over {display: inline-block!important; text-align: center}
+.MJXp-over > * {display: block!important}
+.MJXp-munderover > * {display: table-row!important}
+.MJXp-mtable {vertical-align: .25em; margin: 0 .125em}
+.MJXp-mtable > * {display: inline-table!important; vertical-align: middle}
+.MJXp-mtr {display: table-row!important}
+.MJXp-mtd {display: table-cell!important; text-align: center; padding: .5em 0 0 .5em}
+.MJXp-mtr > .MJXp-mtd:first-child {padding-left: 0}
+.MJXp-mtr:first-child > .MJXp-mtd {padding-top: 0}
+.MJXp-mlabeledtr {display: table-row!important}
+.MJXp-mlabeledtr > .MJXp-mtd:first-child {padding-left: 0}
+.MJXp-mlabeledtr:first-child > .MJXp-mtd {padding-top: 0}
+.MJXp-merror {background-color: #FFFF88; color: #CC0000; border: 1px solid #CC0000; padding: 1px 3px; font-style: normal; font-size: 90%}
+.MJXp-scale0 {-webkit-transform: scaleX(.0); -moz-transform: scaleX(.0); -ms-transform: scaleX(.0); -o-transform: scaleX(.0); transform: scaleX(.0)}
+.MJXp-scale1 {-webkit-transform: scaleX(.1); -moz-transform: scaleX(.1); -ms-transform: scaleX(.1); -o-transform: scaleX(.1); transform: scaleX(.1)}
+.MJXp-scale2 {-webkit-transform: scaleX(.2); -moz-transform: scaleX(.2); -ms-transform: scaleX(.2); -o-transform: scaleX(.2); transform: scaleX(.2)}
+.MJXp-scale3 {-webkit-transform: scaleX(.3); -moz-transform: scaleX(.3); -ms-transform: scaleX(.3); -o-transform: scaleX(.3); transform: scaleX(.3)}
+.MJXp-scale4 {-webkit-transform: scaleX(.4); -moz-transform: scaleX(.4); -ms-transform: scaleX(.4); -o-transform: scaleX(.4); transform: scaleX(.4)}
+.MJXp-scale5 {-webkit-transform: scaleX(.5); -moz-transform: scaleX(.5); -ms-transform: scaleX(.5); -o-transform: scaleX(.5); transform: scaleX(.5)}
+.MJXp-scale6 {-webkit-transform: scaleX(.6); -moz-transform: scaleX(.6); -ms-transform: scaleX(.6); -o-transform: scaleX(.6); transform: scaleX(.6)}
+.MJXp-scale7 {-webkit-transform: scaleX(.7); -moz-transform: scaleX(.7); -ms-transform: scaleX(.7); -o-transform: scaleX(.7); transform: scaleX(.7)}
+.MJXp-scale8 {-webkit-transform: scaleX(.8); -moz-transform: scaleX(.8); -ms-transform: scaleX(.8); -o-transform: scaleX(.8); transform: scaleX(.8)}
+.MJXp-scale9 {-webkit-transform: scaleX(.9); -moz-transform: scaleX(.9); -ms-transform: scaleX(.9); -o-transform: scaleX(.9); transform: scaleX(.9)}
+.MathJax_PHTML .noError {vertical-align: ; font-size: 90%; text-align: left; color: black; padding: 1px 3px; border: 1px solid}
+</style><script src="./20180103_Survival Analysis with R_files/alfalfa.4a5fcca1fe50a757044dfd331b660625.js" async="" charset="UTF-8"></script></head>
+<body style=""><div id="MathJax_Message" style="display: none;"></div>
+<div class="container">
+
+
+<div id="container">
+	<header id="header">
+  <div id="header-main" class="header-inner">
+    <div class="outer">
+      <a href="https://rviews.rstudio.com/" id="logo">
+          
+          <i class="logo" style="background-image: url(&#39;/css/images/logo.png&#39;)"></i>
+          
+          <span class="site-title">R Views</span>
+      </a>
+      <nav id="main-nav">
+          
+          
+          <a class="main-nav-link" href="https://rviews.rstudio.com/">Home</a>
+          
+          
+          
+          <a class="main-nav-link" href="https://rviews.rstudio.com/about/">About</a>
+          
+          
+          
+          <a class="main-nav-link" href="https://rviews.rstudio.com/contributors/">Contributors</a>
+          
+          
+
+          
+
+          
+          
+          
+          
+          
+          
+          
+      </nav>
+        <nav id="sub-nav">
+          <div class="profile" id="profile-nav">
+            <a id="profile-anchor" href="javascript:;"><img class="avatar" src="./20180103_Survival Analysis with R_files/logo.png"><i class="fa fa-caret-down"></i></a>
+          </div>
+        </nav>
+        <div id="search-form-wrap">
+          <form action="https://google.com/search" method="get" accept-charset="UTF-8" class="search-form">
+              <input type="search" name="q" class="search-form-input" placeholder="Search">
+              <button type="submit" class="search-form-submit">
+              </button>
+              <input type="hidden" name="q" value="site:https://rviews.rstudio.com">
+         </form>
+        </div>
+    </div>
+  </div>
+  <div id="main-nav-mobile" class="header-sub header-inner">
+    <table class="menu outer">
+      <tbody>
+          <tr>
+          
+          
+          <td><a class="main-nav-link" href="https://rviews.rstudio.com/">Home</a></td>
+          
+          
+          
+          <td><a class="main-nav-link" href="https://rviews.rstudio.com/about/">About</a></td>
+          
+          
+          
+          <td><a class="main-nav-link" href="https://rviews.rstudio.com/contributors/">Contributors</a></td>
+          
+          
+
+          
+
+          
+          
+          
+          
+          
+          
+          
+          <td>
+          <form action="https://google.com/search" method="get" accept-charset="UTF-8" class="search-form">
+          <input type="search" name="q" class="search-form-input" placeholder="Search">
+          <input type="hidden" name="q" value="site:https://rviews.rstudio.com">
+          </form>
+        </td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+</header>
+
+
+   	<div class="outer">
+   		
+	    <aside id="profile">
+  <div class="inner profile-inner">
+    <div class="base-info profile-block">
+      <img id="avatar" src="./20180103_Survival Analysis with R_files/logo.png">
+      <h2 id="name">R Views</h2>
+      <h3 id="title">An R community blog edited by <img src="./20180103_Survival Analysis with R_files/rstudio.svg" width="90" alt="RStudio"></h3>
+      <span id="location"><i class="fa fa-map-marker"></i>Boston, MA</span>
+    </div>
+    <div class="article-info profile-block">
+      <div class="article-info-block">
+        113
+        <span>Posts</span>
+      </div>
+      <div class="article-info-block">
+        
+          98
+        
+        <span>
+            Tags
+        </span>
+      </div>
+    </div>
+    <div class="profile-block social-links">
+      <table>
+        <tbody><tr>
+          
+<td><a href="https://github.com/rstudio" target="_blank" title="GitHub"><i class="fa fa-github"></i></a></td>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td><a href="https://linkedin.com/company/rstudio-inc" target="_blank" title="LinkedIn"><i class="fa fa-linkedin"></i></a></td>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td><a href="https://facebook.com/pages/RStudio-Inc/267733656584415" target="_blank" title="Facebook"><i class="fa fa-facebook"></i></a></td>
+
+
+
+<td><a href="https://twitter.com/rstudio" target="_blank" title="Twitter"><i class="fa fa-twitter"></i></a></td>
+
+
+          <td><a href="https://rviews.rstudio.com/2017/09/25/survival-analysis-with-r/" target="_blank" title="RSS"><i class="fa fa-rss"></i></a></td>
+        </tr>
+      </tbody></table>
+    </div>
+    
+<div class="profile-block subscribe-form">
+  <script src="./20180103_Survival Analysis with R_files/forms2.min.js"></script>
+  <form id="mktoForm_1917" novalidate="novalidate" class="mktoForm mktoHasWidth mktoLayoutLeft" style="font-family: inherit; font-size: 13px; color: rgb(51, 51, 51); width: 261px;"><style type="text/css"></style><div class="mktoFormRow"><div class="mktoFieldDescriptor mktoFormCol" style="margin-bottom: 5px;"><div class="mktoOffset" style="width: 5px;"></div><div class="mktoFieldWrap"><label for="Email" class="mktoLabel mktoHasWidth" style="width: 0px;"><div class="mktoAsterix">*</div></label><div class="mktoGutter mktoHasWidth" style="width: 5px;"></div><input id="Email" name="Email" placeholder="Email" maxlength="255" type="email" class="mktoField mktoEmailField mktoHasWidth" style="width: 200px;"><div class="mktoClear"></div></div><div class="mktoClear"></div></div><div class="mktoClear"></div></div><div class="mktoFormRow"><input type="hidden" name="LeadSource" class="mktoField mktoFieldDescriptor mktoFormCol" value="Online Program" style="margin-bottom: 5px;"><div class="mktoClear"></div></div><div class="mktoFormRow"><input type="hidden" name="Lead_Source_Detail__c" class="mktoField mktoFieldDescriptor mktoFormCol" value="rviews subscriber" style="margin-bottom: 5px;"><div class="mktoClear"></div></div><div class="mktoFormRow"><div class="mktoFormCol" style="margin-bottom: 5px;"><div class="mktoOffset mktoHasWidth" style="width: 5px;"></div><div class="mktoFieldWrap"><div class="mktoHtmlText mktoHasWidth" style="width: 255px;"><span>Read our <a href="https://www.rstudio.com/about/privacy-policy/" target="_blank" id="">privacy policy</a></span></div><div class="mktoClear"></div></div><div class="mktoClear"></div></div><div class="mktoClear"></div></div><div class="mktoButtonRow"><span class="mktoButtonWrap mktoNative" style="margin-left: 87px;"><button type="submit" class="mktoButton">Subscribe</button></span></div><input type="hidden" name="formid" class="mktoField mktoFieldDescriptor" value="1917"><input type="hidden" name="munchkinId" class="mktoField mktoFieldDescriptor" value="709-NXN-706"></form>
+  <script>MktoForms2.loadForm("//app-ab02.marketo.com", "709-NXN-706", 1917);</script>
+</div>
+
+
+  </div>
+</aside>
+
+	    
+
+	    
+<section id="main" class="full-width">
+
+    <article id="page-undefined" class="article article-type-page" itemscope="" itemprop="blogPost">
+        <div class="article-inner">
+            
+
+<header class="article-header">
+    <a href="https://rviews.rstudio.com/2017/09/25/survival-analysis-with-r/">
+    <h1 class="article-title" itemprop="name">
+        Survival Analysis with R
+    </h1>
+    </a>
+    
+    <div class="article-meta">
+      <div>
+        <i class="fa fa-calendar"></i>
+        <time datetime="2017-09-25 00:00:00 +0000 UTC" itemprop="datePublished">2017-09-25</time>
+      </div>
+    </div>
+</header>
+            <div class="article-entry" itemprop="articleBody">
+                
+                  
+                    
+                    <div>by Joseph Rickert</div>
+                    
+                  
+                
+                <p>With roots dating back to at least 1662 when John Graunt, a London merchant, published an extensive set of inferences based on mortality records, survival analysis is one of the oldest subfields of Statistics [1]. Basic life-table methods, including techniques for dealing with censored data, were discovered before 1700 [2], and in the early eighteenth century, the old masters - de Moivre working on annuities, and Daniel Bernoulli studying competing risks for the analysis of smallpox inoculation - developed the modern foundations of the field [2]. Today, survival analysis models are important in Engineering, Insurance, Marketing, Medicine, and many more application areas. So, it is not surprising that R should be rich in survival analysis functions. CRAN’s Survival Analysis Task View, a curated list of the best relevant R survival analysis packages and functions, is indeed formidable. We all owe a great deal of gratitude to Arthur Allignol and Aurielien Latouche, the task view maintainers.</p>
+<iframe src="./20180103_Survival Analysis with R_files/Survival.html" width="90%" height="450">
+</iframe>
+<p>Looking at the Task View on a small screen, however, is a bit like standing too close to a brick wall - left-right, up-down, bricks all around. It is a fantastic edifice that gives some idea of the significant contributions R developers have made both to the theory and practice of Survival Analysis. As well-organized as it is, however, I imagine that even survival analysis experts need some time to find their way around this task view. Newcomers - people either new to R or new to survival analysis or both - must find it overwhelming. So, it is with newcomers in mind that I offer the following narrow trajectory through the task view that relies on just a few packages: <a href="https://cran.r-project.org/package=survival">survival</a>, <a href="https://cran.r-project.org/package=ggplot2">ggplot2</a>, <a href="https://cran.r-project.org/package=ggfortify">ggfortify</a>, and <a href="https://cran.r-project.org/package=ranger">ranger</a></p>
+<p>The <code>survival</code> package is the cornerstone of the entire R survival analysis edifice. Not only is the package itself rich in features, but the object created by the <code>Surv()</code> function, which contains failure time and censoring information, is the basic survival analysis data structure in R. Dr.&nbsp;Terry Therneau, the package author, began working on the survival package in 1986. The first public release, in late 1989, used the Statlib service hosted by Carnegie Mellon University. Thereafter, the package was incorporated directly into <a href="http://www.mayo.edu/research/documents/tr53pdf/doc-10027379">Splus</a>, and subsequently into R.</p>
+<p><code>ggfortify</code> enables producing handsome, one-line survival plots with <code>ggplot2::autoplot</code>.</p>
+<p><code>ranger</code> might be the surprise in my very short list of survival packages. The <code>ranger()</code> function is well-known for being a fast implementation of the Random Forests algorithm for building ensembles of classification and regression trees. But <code>ranger()</code> also works with survival data. <a href="https://arxiv.org/pdf/1508.04409.pdf">Benchmarks</a> indicate that <code>ranger()</code> is suitable for building time-to-event models with the large, high-dimensional data sets important to internet marketing applications. Since <code>ranger()</code> uses standard <code>Surv()</code> survival objects, it’s an ideal tool for getting acquainted with survival analysis in this machine-learning age.</p>
+<div id="load-the-data" class="section level3">
+<h3>Load the data</h3>
+<p>This first block of code loads the required packages, along with the <code>veteran</code> dataset from the <code>survival</code> package that contains data from a two-treatment, randomized trial for lung cancer.</p>
+<pre class="r"><code class="hljs"><span class="hljs-keyword">library</span>(survival)
+<span class="hljs-keyword">library</span>(ranger)
+<span class="hljs-keyword">library</span>(ggplot2)
+<span class="hljs-keyword">library</span>(dplyr)
+<span class="hljs-keyword">library</span>(ggfortify)
+
+<span class="hljs-comment">#------------</span>
+data(veteran)
+head(veteran)</code></pre>
+<pre><code class="hljs">##   trt celltype time status karno diagtime age prior
+## 1   1 squamous   72      1    60        7  69     0
+## 2   1 squamous  411      1    70        5  64    10
+## 3   1 squamous  228      1    60        3  38     0
+## 4   1 squamous  126      1    60        9  63    10
+## 5   1 squamous  118      1    70       11  65    10
+## 6   1 squamous   10      1    20        5  49     0</code></pre>
+<p>The variables in <code>veteran</code> are: * <code>trt</code>: 1=standard 2=test * <code>celltype</code>: 1=squamous, 2=small cell, 3=adeno, 4=large * <code>time</code>: survival time in days * <code>status</code>: censoring status * <code>karno</code>: Karnofsky performance score (100=good) * <code>diagtime</code>: months from diagnosis to randomization * <code>age</code>: in years * <code>prior</code>: prior therapy 0=no, 10=yes</p>
+</div>
+<div id="kaplan-meier-analysis" class="section level3">
+<h3>Kaplan Meier Analysis</h3>
+<p>The first thing to do is to use <code>Surv()</code> to build the standard survival object. The variable <code>time</code> records survival time; <code>status</code> indicates whether the patient’s death was observed (<code>status = 1</code>) or that survival time was censored (<code>status = 0</code>). Note that a “+” after the time in the print out of <code>km</code> indicates censoring.</p>
+<pre class="r"><code class="hljs"><span class="hljs-comment"># Kaplan Meier Survival Curve</span>
+km &lt;- with(veteran, Surv(time, status))
+head(km,<span class="hljs-number">80</span>)</code></pre>
+<pre><code class="hljs">##  [1]  72  411  228  126  118   10   82  110  314  100+  42    8  144   25+
+## [15]  11   30  384    4   54   13  123+  97+ 153   59  117   16  151   22 
+## [29]  56   21   18  139   20   31   52  287   18   51  122   27   54    7 
+## [43]  63  392   10    8   92   35  117  132   12  162    3   95  177  162 
+## [57] 216  553  278   12  260  200  156  182+ 143  105  103  250  100  999 
+## [71] 112   87+ 231+ 242  991  111    1  587  389   33</code></pre>
+<p>To begin our analysis, we use the formula <code>Surv(futime, status) ~ 1</code> and the <code>survfit()</code> function to produce the <a href="https://en.wikipedia.org/wiki/Kaplan%E2%80%93Meier_estimator">Kaplan-Meier</a> estimates of the probability of survival over time. The <code>times</code> parameter of the <code>summary()</code> function gives some control over which times to print. Here, it is set to print the estimates for 1, 30, 60 and 90 days, and then every 90 days thereafter. This is the simplest possible model. It only takes three lines of R code to fit it, and produce numerical and graphical summaries.</p>
+<pre class="r"><code class="hljs">km_fit &lt;- survfit(Surv(time, status) ~ <span class="hljs-number">1</span>, data=veteran)
+summary(km_fit, times = c(<span class="hljs-number">1</span>,<span class="hljs-number">30</span>,<span class="hljs-number">60</span>,<span class="hljs-number">90</span>*(<span class="hljs-number">1</span>:<span class="hljs-number">10</span>)))</code></pre>
+<pre><code class="hljs">## Call: survfit(formula = Surv(time, status) ~ 1, data = veteran)
+## 
+##  time n.risk n.event survival std.err lower 95% CI upper 95% CI
+##     1    137       2    0.985  0.0102      0.96552       1.0000
+##    30     97      39    0.700  0.0392      0.62774       0.7816
+##    60     73      22    0.538  0.0427      0.46070       0.6288
+##    90     62      10    0.464  0.0428      0.38731       0.5560
+##   180     27      30    0.222  0.0369      0.16066       0.3079
+##   270     16       9    0.144  0.0319      0.09338       0.2223
+##   360     10       6    0.090  0.0265      0.05061       0.1602
+##   450      5       5    0.045  0.0194      0.01931       0.1049
+##   540      4       1    0.036  0.0175      0.01389       0.0934
+##   630      2       2    0.018  0.0126      0.00459       0.0707
+##   720      2       0    0.018  0.0126      0.00459       0.0707
+##   810      2       0    0.018  0.0126      0.00459       0.0707
+##   900      2       0    0.018  0.0126      0.00459       0.0707</code></pre>
+<pre class="r"><code class="hljs"><span class="hljs-comment">#plot(km_fit, xlab="Days", main = 'Kaplan Meyer Plot') #base graphics is always ready</span>
+autoplot(km_fit)</code></pre>
+<p><a href="./20180103_Survival Analysis with R_files/unnamed-chunk-4-1.png" title="" class="fancybox" rel="article0"><img src="./20180103_Survival Analysis with R_files/unnamed-chunk-4-1.png" width="672"></a></p>
+<p>Next, we look at survival curves by treatment.</p>
+<pre class="r"><code class="hljs">km_trt_fit &lt;- survfit(Surv(time, status) ~ trt, data=veteran)
+autoplot(km_trt_fit)</code></pre>
+<p><a href="./20180103_Survival Analysis with R_files/unnamed-chunk-5-1.png" title="" class="fancybox" rel="article0"><img src="./20180103_Survival Analysis with R_files/unnamed-chunk-5-1.png" width="672"></a></p>
+<p>And, to show one more small exploratory plot, I’ll do just a little data munging to look at survival by age. First, I create a new data frame with a categorical variable <code>AG</code> that has values <code>LT60</code> and <code>GT60</code>, which respectively describe veterans younger and older than sixty. While I am at it, I make <code>trt</code> and <code>prior</code> into factor variables. But note, <code>survfit()</code> and <code>npsurv()</code> worked just fine without this refinement.</p>
+<pre class="r"><code class="hljs">vet &lt;- mutate(veteran, AG = ifelse((age &lt; <span class="hljs-number">60</span>), <span class="hljs-string">"LT60"</span>, <span class="hljs-string">"OV60"</span>),
+              AG = factor(AG),
+              trt = factor(trt,labels=c(<span class="hljs-string">"standard"</span>,<span class="hljs-string">"test"</span>)),
+              prior = factor(prior,labels=c(<span class="hljs-string">"N0"</span>,<span class="hljs-string">"Yes"</span>)))
+
+km_AG_fit &lt;- survfit(Surv(time, status) ~ AG, data=vet)
+autoplot(km_AG_fit)</code></pre>
+<p><a href="./20180103_Survival Analysis with R_files/unnamed-chunk-6-1.png" title="" class="fancybox" rel="article0"><img src="./20180103_Survival Analysis with R_files/unnamed-chunk-6-1.png" width="672"></a></p>
+<p>Although the two curves appear to overlap in the first fifty days, younger patients clearly have a better chance of surviving more than a year.</p>
+</div>
+<div id="cox-proportional-hazards-model" class="section level3">
+<h3>Cox Proportional Hazards Model</h3>
+<p>Next, I’ll fit a <a href="https://en.wikipedia.org/wiki/Proportional_hazards_model">Cox Proportional Hazards Model</a> that makes use of all of the covariates in the data set.</p>
+<pre class="r"><code class="hljs"><span class="hljs-comment"># Fit Cox Model</span>
+cox &lt;- coxph(Surv(time, status) ~ trt + celltype + karno                   + diagtime + age + prior , data = vet)
+summary(cox)</code></pre>
+<pre><code class="hljs">## Call:
+## coxph(formula = Surv(time, status) ~ trt + celltype + karno + 
+##     diagtime + age + prior, data = vet)
+## 
+##   n= 137, number of events= 128 
+## 
+##                         coef  exp(coef)   se(coef)      z Pr(&gt;|z|)    
+## trttest            2.946e-01  1.343e+00  2.075e-01  1.419  0.15577    
+## celltypesmallcell  8.616e-01  2.367e+00  2.753e-01  3.130  0.00175 ** 
+## celltypeadeno      1.196e+00  3.307e+00  3.009e-01  3.975 7.05e-05 ***
+## celltypelarge      4.013e-01  1.494e+00  2.827e-01  1.420  0.15574    
+## karno             -3.282e-02  9.677e-01  5.508e-03 -5.958 2.55e-09 ***
+## diagtime           8.132e-05  1.000e+00  9.136e-03  0.009  0.99290    
+## age               -8.706e-03  9.913e-01  9.300e-03 -0.936  0.34920    
+## priorYes           7.159e-02  1.074e+00  2.323e-01  0.308  0.75794    
+## ---
+## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+## 
+##                   exp(coef) exp(-coef) lower .95 upper .95
+## trttest              1.3426     0.7448    0.8939    2.0166
+## celltypesmallcell    2.3669     0.4225    1.3799    4.0597
+## celltypeadeno        3.3071     0.3024    1.8336    5.9647
+## celltypelarge        1.4938     0.6695    0.8583    2.5996
+## karno                0.9677     1.0334    0.9573    0.9782
+## diagtime             1.0001     0.9999    0.9823    1.0182
+## age                  0.9913     1.0087    0.9734    1.0096
+## priorYes             1.0742     0.9309    0.6813    1.6937
+## 
+## Concordance= 0.736  (se = 0.03 )
+## Rsquare= 0.364   (max possible= 0.999 )
+## Likelihood ratio test= 62.1  on 8 df,   p=1.799e-10
+## Wald test            = 62.37  on 8 df,   p=1.596e-10
+## Score (logrank) test = 66.74  on 8 df,   p=2.186e-11</code></pre>
+<pre class="r"><code class="hljs">cox_fit &lt;- survfit(cox)
+<span class="hljs-comment">#plot(cox_fit, main = "cph model", xlab="Days")</span>
+autoplot(cox_fit)</code></pre>
+<p><a href="./20180103_Survival Analysis with R_files/unnamed-chunk-7-1.png" title="" class="fancybox" rel="article0"><img src="./20180103_Survival Analysis with R_files/unnamed-chunk-7-1.png" width="672"></a></p>
+<p>Note that the model flags small cell type, adeno cell type and karno as significant. However, some caution needs to be exercised in interpreting these results. While the Cox Proportional Hazard’s model is thought to be “robust”, a careful analysis would check the assumptions underlying the model. For example, the Cox model assumes that the covariates do not vary with time. In a <a href="https://cran.r-project.org/web/packages/survival/vignettes/timedep.pdf">vignette</a> [12] that accompanies the <code>survival</code> package Therneau, Crowson and Atkinson demonstrate that the Karnofsky score (karno) is, in fact, time-dependent so the assumptions for the Cox model are not met. The vignette authors go on to present a strategy for dealing with time dependent covariates.</p>
+<p>Data scientists who are accustomed to computing ROC curves to assess model performance should be interested in the Concordance statistic. The documentation for the <code>survConcordance()</code> function in the <code>survival</code> package defines concordance as “the probability of agreement for any two randomly chosen observations, where in this case agreement means that the observation with the shorter survival time of the two also has the larger risk score. The predictor (or risk score) will often be the result of a Cox model or other regression” and notes that: “For continuous covariates concordance is equivalent to Kendall’s tau, and for logistic regression is is equivalent to the area under the ROC curve.”</p>
+<p>To demonstrate using the <code>survival</code> package, along with <code>ggplot2</code> and <code>ggfortify</code>, I’ll fit Aalen’s additive regression model for censored data to the veteran data. The documentation states: “The Aalen model assumes that the cumulative hazard H(t) for a subject can be expressed as a(t) + X B(t), where a(t) is a time-dependent intercept term, X is the vector of covariates for the subject (possibly time-dependent), and B(t) is a time-dependent matrix of coefficients.”</p>
+<p>The plots show how the effects of the covariates change over time. Notice the steep slope and then abrupt change in slope of karno.</p>
+<pre class="r"><code class="hljs">aa_fit &lt;-aareg(Surv(time, status) ~ trt + celltype +
+                 karno + diagtime + age + prior , 
+                 data = vet)
+aa_fit</code></pre>
+<pre><code class="hljs">## Call:
+## aareg(formula = Surv(time, status) ~ trt + celltype + karno + 
+##     diagtime + age + prior, data = vet)
+## 
+##   n= 137 
+##     75 out of 97 unique event times used
+## 
+##                       slope      coef se(coef)      z        p
+## Intercept          0.083400  3.81e-02 1.09e-02  3.490 4.79e-04
+## trttest            0.006730  2.49e-03 2.58e-03  0.967 3.34e-01
+## celltypesmallcell  0.015000  7.30e-03 3.38e-03  2.160 3.09e-02
+## celltypeadeno      0.018400  1.03e-02 4.20e-03  2.450 1.42e-02
+## celltypelarge     -0.001090 -6.21e-04 2.71e-03 -0.229 8.19e-01
+## karno             -0.001180 -4.37e-04 8.77e-05 -4.980 6.28e-07
+## diagtime          -0.000243 -4.92e-05 1.64e-04 -0.300 7.65e-01
+## age               -0.000246 -6.27e-05 1.28e-04 -0.491 6.23e-01
+## priorYes           0.003300  1.54e-03 2.86e-03  0.539 5.90e-01
+## 
+## Chisq=41.62 on 8 df, p=1.6e-06; test weights=aalen</code></pre>
+<pre class="r"><code class="hljs"><span class="hljs-comment">#summary(aa_fit)  # provides a more complete summary of results</span>
+autoplot(aa_fit)</code></pre>
+<p><a href="./20180103_Survival Analysis with R_files/unnamed-chunk-8-1.png" title="" class="fancybox" rel="article0"><img src="./20180103_Survival Analysis with R_files/unnamed-chunk-8-1.png" width="672"></a></p>
+</div>
+<div id="random-forests-model" class="section level3">
+<h3>Random Forests Model</h3>
+<p>As a final example of what some might perceive as a data-science-like way to do time-to-event modeling, I’ll use the <code>ranger()</code> function to fit a Random Forests Ensemble model to the data. Note however, that there is nothing new about building tree models of survival data. Terry Therneau also wrote the <a href="https://cran.r-project.org/package=rpart"><code>rpart</code></a> package, R’s basic tree-modeling package, along with Brian Ripley. See section 8.4 for the <a href="https://cran.r-project.org/web/packages/rpart/vignettes/longintro.pdf">rpart vignette</a> [14] that contains a survival analysis example.</p>
+<p><code>ranger()</code> builds a model for each observation in the data set. The next block of code builds the model using the same variables used in the Cox model above, and plots twenty random curves, along with a curve that represents the global average for all of the patients. Note that I am using plain old base R graphics here.</p>
+<pre class="r"><code class="hljs"><span class="hljs-comment"># ranger model</span>
+r_fit &lt;- ranger(Surv(time, status) ~ trt + celltype + 
+                     karno + diagtime + age + prior,
+                     data = vet,
+                     mtry = <span class="hljs-number">4</span>,
+                     importance = <span class="hljs-string">"permutation"</span>,
+                     splitrule = <span class="hljs-string">"extratrees"</span>,
+                     verbose = <span class="hljs-literal">TRUE</span>)
+
+<span class="hljs-comment"># Average the survival models</span>
+death_times &lt;- r_fit$unique.death.times 
+surv_prob &lt;- data.frame(r_fit$survival)
+avg_prob &lt;- sapply(surv_prob,mean)
+
+<span class="hljs-comment"># Plot the survival models for each patient</span>
+plot(r_fit$unique.death.times,r_fit$survival[<span class="hljs-number">1</span>,], 
+     type = <span class="hljs-string">"l"</span>, 
+     ylim = c(<span class="hljs-number">0</span>,<span class="hljs-number">1</span>),
+     col = <span class="hljs-string">"red"</span>,
+     xlab = <span class="hljs-string">"Days"</span>,
+     ylab = <span class="hljs-string">"survival"</span>,
+     main = <span class="hljs-string">"Patient Survival Curves"</span>)
+
+<span class="hljs-comment">#</span>
+cols &lt;- colors()
+<span class="hljs-keyword">for</span> (n <span class="hljs-keyword">in</span> sample(c(<span class="hljs-number">2</span>:dim(vet)[<span class="hljs-number">1</span>]), <span class="hljs-number">20</span>)){
+  lines(r_fit$unique.death.times, r_fit$survival[n,], type = <span class="hljs-string">"l"</span>, col = cols[n])
+}
+lines(death_times, avg_prob, lwd = <span class="hljs-number">2</span>)
+legend(<span class="hljs-number">500</span>, <span class="hljs-number">0.7</span>, legend = c(<span class="hljs-string">'Average = black'</span>))</code></pre>
+<p><a href="./20180103_Survival Analysis with R_files/unnamed-chunk-9-1.png" title="" class="fancybox" rel="article0"><img src="./20180103_Survival Analysis with R_files/unnamed-chunk-9-1.png" width="672"></a></p>
+<p>The next block of code illustrates how <code>ranger()</code> ranks variable importance.</p>
+<pre class="r"><code class="hljs">vi &lt;- data.frame(sort(round(r_fit$variable.importance, <span class="hljs-number">4</span>), decreasing = <span class="hljs-literal">TRUE</span>))
+names(vi) &lt;- <span class="hljs-string">"importance"</span>
+head(vi)</code></pre>
+<pre><code class="hljs">##          importance
+## karno        0.0734
+## celltype     0.0338
+## diagtime     0.0003
+## trt         -0.0007
+## prior       -0.0011
+## age         -0.0027</code></pre>
+<p>Notice that <code>ranger()</code> flags <code>karno</code> and <code>celltype</code> as the two most important; the same variables with the smallest p-values in the Cox model. Also note that the importance results just give variable names and not level names. This is because <code>ranger</code> and other tree models do not usually create dummy variables.</p>
+<p>But <code>ranger()</code> does compute <strong><a href="https://pdfs.semanticscholar.org/7705/392f1068c76669de750c6d0da8144da3304d.pdf">Harrell’s c-index</a></strong> (See [8] p.&nbsp;370 for the definition), which is similar to the Concordance statistic described above. This is a generalization of the ROC curve, which reduces to the <a href="https://en.wikipedia.org/wiki/Mann%E2%80%93Whitney_U_test">Wilcoxon-Mann-Whitney statistic</a> for binary variables, which in turn, is equivalent to computing the area under the ROC curve.</p>
+<pre class="r"><code class="hljs">cat(<span class="hljs-string">"Prediction Error = 1 - Harrell's c-index = "</span>, r_fit$prediction.error)</code></pre>
+<pre><code class="hljs">## Prediction Error = 1 - Harrell's c-index =  0.308269</code></pre>
+<p>An ROC value of .68 would normally be pretty good for a first try. But note that the <code>ranger</code> model doesn’t do anything to address the time varying coefficients. This apparently is a challenge. In a 2011 <a href="https://projecteuclid.org/download/pdfview_1/euclid.ssu/1315833185">paper</a> [16], Hamad observes:</p>
+<blockquote>
+<p>However, in the context of survival trees, a further difficulty arises when time–varying effects are included. Hence, we feel that the interpretation of covariate effects with tree ensembles in general is still mainly unsolved and should attract future research.</p>
+</blockquote>
+<p>I believe that the major use for tree-based models for survival data will be to deal with very large data sets.</p>
+<p>Finally, to provide an “eyeball comparison” of the three survival curves, I’ll plot them on the same graph.The following code pulls out the survival data from the three model objects and puts them into a data frame for <code>ggplot()</code>.</p>
+<pre class="r"><code class="hljs"><span class="hljs-comment"># Set up for ggplot</span>
+kmi &lt;- rep(<span class="hljs-string">"KM"</span>,length(km_fit$time))
+km_df &lt;- data.frame(km_fit$time,km_fit$surv,kmi)
+names(km_df) &lt;- c(<span class="hljs-string">"Time"</span>,<span class="hljs-string">"Surv"</span>,<span class="hljs-string">"Model"</span>)
+
+coxi &lt;- rep(<span class="hljs-string">"Cox"</span>,length(cox_fit$time))
+cox_df &lt;- data.frame(cox_fit$time,cox_fit$surv,coxi)
+names(cox_df) &lt;- c(<span class="hljs-string">"Time"</span>,<span class="hljs-string">"Surv"</span>,<span class="hljs-string">"Model"</span>)
+
+rfi &lt;- rep(<span class="hljs-string">"RF"</span>,length(r_fit$unique.death.times))
+rf_df &lt;- data.frame(r_fit$unique.death.times,avg_prob,rfi)
+names(rf_df) &lt;- c(<span class="hljs-string">"Time"</span>,<span class="hljs-string">"Surv"</span>,<span class="hljs-string">"Model"</span>)
+
+plot_df &lt;- rbind(km_df,cox_df,rf_df)
+
+p &lt;- ggplot(plot_df, aes(x = Time, y = Surv, color = Model))
+p + geom_line()</code></pre>
+<p><a href="./20180103_Survival Analysis with R_files/unnamed-chunk-12-1.png" title="" class="fancybox" rel="article0"><img src="./20180103_Survival Analysis with R_files/unnamed-chunk-12-1.png" width="672"></a></p>
+<p>For this data set, I would put my money on a carefully constructed Cox model that takes into account the time varying coefficients. I suspect that there are neither enough observations nor enough explanatory variables for the <code>ranger()</code> model to do better.</p>
+<p>This four-package excursion only hints at the Survival Analysis tools that are available in R, but it does illustrate some of the richness of the R platform, which has been under continuous development and improvement for nearly twenty years. The <code>ranger</code> package, which suggests the <code>survival</code> package, and <code>ggfortify</code>, which depends on <code>ggplot2</code> and also suggests the <code>survival</code> package, illustrate how open-source code allows developers to build on the work of their predecessors. The documentation that accompanies the <code>survival</code> package, the numerous online resources, and the statistics such as concordance and Harrell’s c-index packed into the objects produced by fitting the models gives some idea of the statistical depth that underlies almost everything R.</p>
+</div>
+<div id="some-tutorials-and-papers" class="section level3">
+<h3>Some Tutorials and Papers</h3>
+<p>For a very nice, basic tutorial on survival analysis, have a look at the <a href="https://www.openintro.org/download.php?file=survival_analysis_in_R&amp;referrer=/stat/surv.php">Survival Analysis in R</a> [5] and the <a href="https://cran.r-project.org/package=OIsurv">OIsurv</a> package produced by the folks at <a href="https://www.openintro.org/stat/surv.php">OpenIntro</a>.</p>
+<p>Look <a href="https://courses.nus.edu.sg/course/stacar/internet/st3242/handouts/notes3.pdf">here</a> for an exposition of the Cox Proportional Hazard’s Model, and <a href="http://www.medicine.mcgill.ca/epidemiology/hanley/bios601/Encyclopedia%20of%20Biostatistics2ndEd2005.pdf">here</a> [11] for an introduction to Aalen’s Additive Regression Model.</p>
+<p>For an elementary treatment of evaluating the proportional hazards assumption that uses the veterans data set, see the text by Kleinbaum and Klein [13].</p>
+<p>For an exposition of the sort of predictive survival analysis modeling that can be done with <code>ranger</code>, be sure to have a look at Manuel Amunategui’s <a href="http://amunategui.github.io/survival-ensembles/">post</a> and <a href="https://www.youtube.com/watch?v=6q-UFJUZK0g&amp;list=UUq4pm1i_VZqxKVVOz5qRBIA&amp;index=1">video</a>.</p>
+<p>See the <a href="http://kooperberg.fhcrc.org/papers/1995trees.pdf">1995 paper</a> [15] by Intrator and Kooperberg for an early review of using classification and regression trees to study survival data.</p>
+</div>
+<div id="references" class="section level3">
+<h3>References</h3>
+<p>For convenience, I have collected the references used throughout the post here.</p>
+<p>[1] Hacking, Ian. (2006) <em>The Emergence of Probability: A Philosophical Study of Early Ideas about Probability Induction and Statistical Inference.</em> Cambridge University Press, 2nd ed., p.&nbsp;11<br>
+[2] Andersen, P.K., Keiding, N. (1998) <a href="http://www.pauldickman.com/survival/handouts/21%20-%20EoB%20Survival%20analysis%20overview.pdf"><em>Survival analysis</em></a> Encyclopedia of Biostatistics 6. Wiley, pp.&nbsp;4452-4461 [3] Kaplan, E.L. &amp; Meier, P. (1958). <em>Non-parametric estimation from incomplete observations</em>, J American Stats Assn. 53, pp.&nbsp;457–481, 562–563. [4] Cox, D.R. (1972). <em>Regression models and life-tables</em> (with discussion), Journal of the Royal Statistical Society (B) 34, pp.&nbsp;187–220.<br>
+[5] Diez, David. <a href="https://www.openintro.org/download.php?file=survival_analysis_in_R&amp;referrer=/stat/surv.php"><em>Survival Analysis in R</em></a>, <a href="https://www.openintro.org/stat/surv.php">OpenIntro</a><br>
+[6] Klein, John P and Moeschberger, Melvin L. <em>Survival Analysis Techniques for Censored and Truncated Data</em>, Springer. (1997)<br>
+[7] Wright, Marvin &amp; Ziegler, Andreas. (2017) <a href="https://www.jstatsoft.org/article/view/v077i01"><em>ranger: A Fast Implementation of Random Forests for High Dimensional Data in C++ and R</em></a>, JSS Vol 77, Issue 1.<br>
+[8] Harrell, Frank, Lee, Kerry &amp; Mark, Daniel. <a href="https://pdfs.semanticscholar.org/7705/392f1068c76669de750c6d0da8144da3304d.pdf"><em>Multivariable Prognostic Models: Issues in Developing Models, Evaluating Assumptions and Adequacy, and Measuring and Reducing Errors</em></a>. Statistics in Medicine, Vol 15 (1996), pp.&nbsp;361-387 [9] Amunategui, Manuel. <a href="http://amunategui.github.io/survival-ensembles/"><em>Survival Ensembles: Survival Plus Classification for Improved Time-Based Predictions in R</em></a><br>
+[10] NUS Course Notes. <a href="https://courses.nus.edu.sg/course/stacar/internet/st3242/handouts/notes3.pdf"><em>Chapter 3 The Cox Proportional Hazards Model</em></a><br>
+[11] Encyclopedia of Biostatistics, 2nd Edition (2005). <a href="http://www.medicine.mcgill.ca/epidemiology/hanley/bios601/Encyclopedia%20of%20Biostatistics2ndEd2005.pdf"><em>Aalen’s Additive Regression Model</em></a> [12] Therneau et al. <a href="https://cran.r-project.org/web/packages/survival/vignettes/timedep.pdf"><em>Using Time Dependent Covariates and Time Dependent Coefficients in the Cox Model</em></a><br>
+[13] Kleinbaum, D.G. and Klein, M. <a href="https://www.amazon.com/Survival-Analysis-Self-Learning-Statistics-Biology/dp/1441966455/ref=sr_1_1?ie=UTF8&amp;qid=1504809712&amp;sr=8-1&amp;keywords=survival+analysis+a+self-learning+text"><em>Survival Analysis, A Self Learning Text</em></a> Springer (2005) [14] Therneau, T and Atkinson, E. <a href="https://cran.r-project.org/web/packages/rpart/vignettes/longintro.pdf"><em>An Introduction to Recursive Partitioning Using RPART Routines</em></a><br>
+[15] Intrator, O. and Kooperberg, C. <a href="http://kooperberg.fhcrc.org/papers/1995trees.pdf"><em>Trees and splines in survival analysis</em></a> Statistical Methods in Medical Research (1995)<br>
+[16] Bou-Hamad, I. <a href="https://projecteuclid.org/download/pdfview_1/euclid.ssu/1315833185"><em>A review of survival trees</em></a> Statistics Surveys Vol.5 (2011)</p>
+<p><strong>Authors’s note: this post was originally published on April 26, 2017 but was subsequently withdrawn because of an error spotted by Dr.&nbsp;Terry Therneau. He observed that the Cox Portional Hazards Model fitted in that post did not properly account for the time varying covariates. This revised post makes use of a different data set, and points to resources for addressing time varying covariates. Many thanks to Dr.&nbsp;Therneau. Any errors that remain are mine.</strong></p>
+</div>
+
+            </div>
+            <footer class="article-footer">
+    <a data-url="/2017/09/25/survival-analysis-with-r/" data-id="4a333d18ffc534445ac823963fd6cca1" class="article-share-link">
+        <i class="fa fa-share"></i>
+        Share
+    </a>
+    
+    <a href="https://rviews.rstudio.com/2017/09/25/survival-analysis-with-r/#disqus_thread" class="article-comment-link">
+        Comments
+    </a>
+    
+    
+        
+        
+            <i class="fa fa-folder"></i>
+            
+            
+            <a class="article-category-link" href="https://rviews.rstudio.com/categories/r-language">R Language</a>
+            ·
+            
+            
+            <a class="article-category-link" href="https://rviews.rstudio.com/categories/statistics">Statistics</a>
+            ·
+            
+            
+            <a class="article-category-link" href="https://rviews.rstudio.com/categories/data-science">Data Science</a>
+            
+            
+        
+    
+
+    
+        
+        
+            <i class="fa fa-tags"></i>
+            
+            
+            <a class="article-category-link" href="https://rviews.rstudio.com/tags/r">R</a>
+            ·
+            
+            
+            <a class="article-category-link" href="https://rviews.rstudio.com/tags/cran-task-views">CRAN Task Views</a>
+            ·
+            
+            
+            <a class="article-category-link" href="https://rviews.rstudio.com/tags/survival-analysis">Survival Analysis</a>
+            ·
+            
+            
+            <a class="article-category-link" href="https://rviews.rstudio.com/tags/random-forests">Random Forests</a>
+            
+            
+        
+    
+
+    <script>
+    (function ($) {
+        
+        if (typeof(__SHARE_BUTTON_BINDED__) === 'undefined' || !__SHARE_BUTTON_BINDED__) {
+            __SHARE_BUTTON_BINDED__ = true;
+        } else {
+            return;
+        }
+        $('body').on('click', function() {
+            $('.article-share-box.on').removeClass('on');
+        }).on('click', '.article-share-link', function(e) {
+            e.stopPropagation();
+
+            var $this = $(this),
+                url = $this.attr('data-url'),
+                id = 'article-share-box-' + $this.attr('data-id'),
+                offset = $this.offset(),
+                box;
+            if (!/^https?:/.test(url)) url = location.origin + url;
+            var encodedUrl = encodeURIComponent(url);
+
+            if ($('#' + id).length) {
+                box = $('#' + id);
+
+                if (box.hasClass('on')){
+                    box.removeClass('on');
+                    return;
+                }
+            } else {
+                var html = [
+                    '<div id="' + id + '" class="article-share-box">',
+                        '<input class="article-share-input" value="' + url + '">',
+                        '<div class="article-share-links">',
+                            '<a href="https://twitter.com/intent/tweet?url=' + encodedUrl + '" class="fa fa-twitter article-share-twitter" target="_blank" title="Twitter"></a>',
+                            '<a href="https://www.facebook.com/sharer.php?u=' + encodedUrl + '" class="fa fa-facebook article-share-facebook" target="_blank" title="Facebook"></a>',
+                            '<a href="http://pinterest.com/pin/create/button/?url=' + encodedUrl + '" class="fa fa-pinterest article-share-pinterest" target="_blank" title="Pinterest"></a>',
+                            '<a href="https://plus.google.com/share?url=' + encodedUrl + '" class="fa fa-google article-share-google" target="_blank" title="Google+"></a>',
+                        '</div>',
+                    '</div>'
+                ].join('');
+
+              box = $(html);
+
+              $('body').append(box);
+            }
+
+            $('.article-share-box.on').hide();
+
+            box.css({
+                top: offset.top + 25,
+                left: offset.left
+            }).addClass('on');
+
+        }).on('click', '.article-share-box', function (e) {
+            e.stopPropagation();
+        }).on('click', '.article-share-box-input', function () {
+            $(this).select();
+        }).on('click', '.article-share-box-link', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            window.open(this.href, 'article-share-box-window-' + Date.now(), 'width=500,height=450');
+        });
+    })(jQuery);
+    </script>
+</footer>
+
+        </div>
+
+        
+<nav id="article-nav">
+    
+    <a href="https://rviews.rstudio.com/2017/09/21/report-from-mexico-city/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">
+          Older
+      </strong>
+      <div class="article-nav-title">Report from Mexico City</div>
+    </a>
+    
+
+    
+    <a href="https://rviews.rstudio.com/2017/09/29/august-2017-new-package-picks/" id="article-nav-newer" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">
+          Newer
+      </strong>
+      <div class="article-nav-title">August 2017 New Package Picks</div>
+    </a>
+    
+</nav>
+
+
+    </article>
+
+    
+    <section id="comments">
+      <p>You may leave a comment below or discuss the post in the forum <a href="https://community.rstudio.com/">community.rstudio.com</a>.</p>
+        <div id="disqus_thread"><iframe id="dsq-app8869" name="dsq-app8869" allowtransparency="true" frameborder="0" scrolling="no" tabindex="0" title="Disqus" width="100%" src="./20180103_Survival Analysis with R_files/saved_resource.html" style="width: 1px !important; min-width: 100% !important; border: none !important; overflow: hidden !important; height: 427px !important;" horizontalscrolling="no" verticalscrolling="no"></iframe></div>
+    </section>
+    
+</section>
+
+	</div>
+</div>
+
+<footer id="footer">
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      © 2016 - 2017
+      RStudio, Inc. All Rights Reserved.
+    </div>
+  </div>
+</footer>
+
+
+<script src="./20180103_Survival Analysis with R_files/jquery.fancybox.pack.js"></script>
+<script src="./20180103_Survival Analysis with R_files/script.js"></script>
+<script src="./20180103_Survival Analysis with R_files/highlight.min.js"></script>
+<script src="./20180103_Survival Analysis with R_files/r.min.js"></script>
+<script src="./20180103_Survival Analysis with R_files/yaml.min.js"></script>
+<script>hljs.configure({languages: []}); hljs.initHighlightingOnLoad();</script>
+
+
+<script type="text/x-mathjax-config;executed=true">
+MathJax.Hub.Config({
+  tex2jax: {
+    skipTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+  }
+});
+</script>
+<script src="./20180103_Survival Analysis with R_files/MathJax.js"></script>
+<script>
+MathJax.Hub.Queue(function() {
+  var jaxs = MathJax.Hub.getAllJax();
+  for (var i = 0; i < jaxs.length; i++) {
+    var $jax = $(jaxs[i].SourceElement());
+    if ($jax.parent().is('code')) $jax.unwrap();
+  }
+});
+</script>
+
+
+
+
+
+</div><iframe style="display: none;" src="./20180103_Survival Analysis with R_files/saved_resource(2).html"></iframe><div id="mktoStyleLoaded" style="display: none; border-top-color: rgb(18, 52, 86);"></div><form novalidate="novalidate" class="mktoForm mktoHasWidth mktoLayoutLeft" style="font-family: inherit; font-size: 13px; color: rgb(51, 51, 51); visibility: hidden; position: absolute; top: -500px; left: -1000px; width: 945px;"></form><iframe name="mktoFormsXDIframe0.6396456292722899" id="MktoForms2XDIframe" src="./20180103_Survival Analysis with R_files/XDFrame.html" style="display: none;"></iframe></body></html>

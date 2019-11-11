@@ -1,0 +1,341 @@
+---
+title: "Heritability for 40mM paraquat exposure in 24-Well plates"
+author: "Tim C."
+date: "2/14/2018"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+try(setwd(dirname(rstudioapi::getActiveDocumentContext()$path)))
+library(tidyverse)
+library(forcats)
+library(broom)
+```
+
+This analysis uses two independent 24-well plate assays performed in the Fang-Yen lab. Wild isolates were treated with 40 mM paraquat in wells. 20 L4 nematodes were added to each well and there are two replicate wells for each strain in an assay.<br><br>
+**activity** = Raw activity per well at each time point <br>
+**survival time** = Time to 2% of total activity remaining in a particular well.<br><br>
+Survival time is computed this way: <br>
+1. Take the integral (sum) of activity for a given well from time 0 to t.  This creates something like a cumulative distribution function of activity. <br>
+2. Normalize by the final value (integral of activity over the whole experiment). <br>
+3. Find the time point for each well where the normalized integral of activity is equal to 0.98. This effectively calculates the time point at which  98% of all the activity of the well has been carried out, and seems to track well with the lifespan.
+
+## Data structure
+
+```{r, echo = FALSE}
+# read data from assay 1
+df1 <- as.data.frame(read.csv(file = "WI_24WellPlate_40mMParaquat_LongFormat_Plate1.csv", header = T))
+df1 <- df1 %>%
+  dplyr::mutate(assay = 1)
+
+# read data from assay 2
+df2 <- as.data.frame(read.csv(file = "WI_24WellPlate_40mMParaquat_LongFormat_Plate2.csv", header = T))
+df2 <- df2 %>%
+  dplyr::mutate(assay = 2)
+
+# append assay 2 to assay 1 in single dataframe
+df <- dplyr::bind_rows(df1, df2) %>%
+  dplyr::rename(strain = Genotype, well = Well.Number, hour = Time..Hours., 
+                surv_time = Aggregate.Lifespan.Activity.Score, activity = Activity)
+  
+glimpse(df)
+```
+
+## Analysis 1: Survival Time trait 
+
+```{r pressure, echo=FALSE}
+
+fig1 <- ggplot(df %>% dplyr::distinct(strain, well, assay, .keep_all = T)) +
+  aes(x = strain, y = surv_time) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = .25, aes(color = as.factor(assay))) +
+  theme_classic() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black")) + 
+  labs(title = "Fig. 1 Survival time (Heritbility = 0.114)", color = "Assay", x = "Strain", y = "Survival Time (h)") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(legend.position="right")
+
+fig1
+
+# define heritability test
+H2.test <- function(data){
+  
+  pheno <- as.data.frame(dplyr::select(data, phenotype))[,1]
+  strain <- as.factor(data$strain)
+  
+  reffMod <- lme4::lmer(pheno ~ 1 + (1|strain))
+  
+  Variances <- as.data.frame(lme4::VarCorr(reffMod, comp = "Variance"))
+  
+  Vg <- Variances$vcov[1]
+  Ve <- Variances$vcov[2]
+  H2 <- Vg/(Vg+Ve)
+  
+  return(H2)
+}
+
+# Calculate heritbaility ignoring assay effect and using four replicates
+
+df_h <- df %>%
+  dplyr::distinct(strain, well, assay, .keep_all = T) %>%
+  dplyr::rename(phenotype = surv_time) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x)
+
+survival_heritability <- df_h$H2
+
+# Calculate heritbaility regressing out assay effect
+
+df_h2 <- df %>%
+  dplyr::distinct(strain, well, assay, .keep_all = T) %>%
+  dplyr::rename(phenotype = surv_time) %>%
+  dplyr::mutate(phenotype = residuals(lm(phenotype ~ assay))) %>% # regress out block effect
+  dplyr::do(broom::tidy(H2.test(.))) %>% # calculate heritability
+  dplyr::rename(H2 = x)
+
+survival_heritability2 <- df_h2$H2
+
+fig2 <- ggplot(df_h2 <- df %>%
+  dplyr::distinct(strain, well, assay, .keep_all = T) %>%
+  dplyr::rename(phenotype = surv_time) %>%
+  dplyr::mutate(phenotype = residuals(lm(phenotype ~ assay)))) +
+  aes(x = strain, y = phenotype) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = .25, aes(color = as.factor(assay))) +
+  theme_classic() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black")) + 
+  labs(title = "Fig. 2 Assay regressed survival time (Heritability = 0.269)", color = "Assay", x = "Strain", y = "Residual survival time (h)") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(legend.position="right")
+
+fig2
+
+```
+<br>
+
+##Analysis 1: Conclusions
+1) Survival time trait is only above 0.2 heritability threshold when assay effect is regressed out (Fig. 2).
+<br>
+
+##Analysis 2: Other activity traits
+
+```{r, echo = FALSE, warning=FALSE}
+
+# plotting raw activites
+
+all <- ggplot(df) +
+  aes(x = hour, y = activity, color = strain) +
+  geom_point(alpha = 0.2) +
+  #geom_smooth(size = 0.5, color = "black") +
+  facet_grid(~strain) +
+  theme_classic() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black")) + 
+  labs(title = "Fig. 3 Raw activity", color = "Strain", x = "Hour", y = "Raw Activity") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(legend.position="none")
+
+all
+
+```
+<br>
+I will integrate activity levels for different time bins and measure heritability.
+<br>
+```{r, echo = FALSE}
+
+new_df <- df %>%
+  dplyr::filter(!is.na(activity), hour < 50) %>%
+  dplyr::group_by(strain, assay, well) %>%
+  dplyr::mutate(rep = ifelse(assay == 1 & well == 1, 1,
+                      ifelse(assay == 1 & well == 2, 2,
+                      ifelse(assay == 2 & well == 1, 3,
+                      ifelse(assay == 2 & well == 2, 4, NA))))) %>%
+  dplyr::mutate(tot_act = sum(activity)) %>%
+  dplyr::mutate(cumsum = cumsum(activity)) %>%
+  dplyr::mutate(act_remain = 1 - (cumsum/tot_act)) %>%
+  dplyr::mutate(window = case_when(
+                  hour <= 1 ~ "h0_1",
+                  hour <= 2 ~ "h1_2",
+                  hour <= 3 ~ "h2_3",
+                  hour <= 4 ~ "h3_4", 
+                  hour <= 5 ~ "h4_5",
+                  hour <= 10 & hour > 5 ~ "h5_10",
+                  hour <= 15 & hour > 10 ~ "h10_15",
+                  hour <= 20 & hour > 15 ~ "h15_20",
+                  hour <= 25 & hour > 20 ~ "h20_25",
+                  hour <= 30 & hour > 25 ~ "h25_30",
+                  hour <= 35 & hour > 30 ~ "h30_35",
+                  hour <= 40 & hour > 35 ~ "h35_40",
+                  hour <= 45 & hour > 40 ~ "h40_45",
+                  hour <= 50 & hour > 45 ~ "h45_50")) %>%
+  dplyr::mutate(window = factor(window, levels = c("h0_1", "h1_2",
+                                                   "h2_3", "h3_4",
+                                                   "h4_5", "h5_10",
+                                                   "h10_15", "h15_20",
+                                                   "h20_25","h25_30",
+                                                   "h30_35", "h35_40",
+                                                   "h40_45", "h45_50"))) %>%
+  dplyr::group_by(strain, rep, window) %>%
+  dplyr::mutate(auc = sum(activity))
+
+# plot integrated activity for time window 
+windows1 <- ggplot(new_df %>%
+  dplyr::distinct(window, .keep_all = T) %>%
+  dplyr::rename(phenotype = auc)) +
+  aes(x = window, y = phenotype, color = as.factor(rep)) +
+  geom_boxplot() +
+  geom_point() +
+  facet_grid(~strain)
+
+
+# calculate heritability for time windows 
+df_h_windows <- new_df %>%
+  dplyr::distinct(window, .keep_all = T) %>%
+  dplyr::rename(phenotype = auc) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(window) %>%
+  #dplyr::mutate(phenotype = residuals(lm(phenotype ~ assay))) %>% # regress out block effect
+  dplyr::do(broom::tidy(H2.test(.))) %>% # calculate heritability
+  dplyr::rename(H2 = x)
+
+# plot heritability for each time window
+window_h <- ggplot(df_h_windows) +
+  aes(x = window, y = H2) +
+  geom_point() +
+  geom_hline(yintercept = 0.2, linetype = "dashed", color = "red" ) +
+  theme_classic() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black")) + 
+  labs(title = "Fig. 4 Heritability for integrated activity levels in time windows", x = "Assay time window", y = "Heritability") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(legend.position="none")
+
+window_h
+```
+<br>
+heritability for integrated activity from 2-3 hours is 0.37 (Fig. 4). I will plot raw activity values for that time window and a boxplot to see what the data look like.
+<br>
+
+```{r, echo = FALSE}
+# dotplot raw activity for 2-3 hour window
+window_dot <- ggplot(new_df %>% 
+                       dplyr::filter(window == "h2_3")) +
+  aes(x = hour, y = activity, color = as.factor(assay)) +
+  geom_point(alpha = 0.15) + 
+  theme_classic() +
+  facet_grid(~strain) +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black")) + 
+  labs(title = "Fig. 5 Raw activity levels from 2-3 hours", x = "Time", y = "Activity", color = "assay") +
+  theme(axis.text.x = element_text(size = 0)) +
+  theme(legend.position="right")
+
+window_dot
+
+# boxplot integrated activity for highest heritability window
+window_box <- ggplot(new_df %>% 
+                       dplyr::filter(window == "h2_3") %>%
+                       dplyr::distinct(strain, rep, .keep_all = T)) +
+  aes(x = strain, y = auc) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = .25, aes(color = as.factor(assay))) + 
+  theme_classic() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black")) + 
+  labs(title = "Fig. 6 Integrated activity levels from 2-3 hours", x = "", y = "Integrated activity", color = "Assay") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(legend.position="right")
+
+window_box
+
+# Uses assay correction and calculate heritability
+df_h_windows_corr <- new_df %>%
+  dplyr::distinct(window, .keep_all = T) %>%
+  dplyr::rename(phenotype = auc) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(window) %>%
+  dplyr::mutate(phenotype = residuals(lm(phenotype ~ assay))) %>% # regress out block effect
+  dplyr::do(broom::tidy(H2.test(.))) %>% # calculate heritability
+  dplyr::rename(H2 = x)
+
+# boxplot integrated activity for highest heritability window
+window_box_corr <- ggplot(new_df %>% 
+                       dplyr::filter(window == "h2_3") %>%
+                       dplyr::mutate(phenotype = residuals(lm(auc ~ assay))) %>%
+                       dplyr::distinct(strain, rep, .keep_all = T)) +
+  aes(x = strain, y = phenotype) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = .25, aes(color = as.factor(assay))) + 
+  theme_classic() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black")) + 
+  labs(title = "Fig. 7 Assay regressed Integrated activity levels from 2-3 hours", x = "", y = "Residual integrated activity", color = "Assay") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(legend.position="right")
+
+
+# plot heritability for assay corrected windows
+window_h_corr <- ggplot(df_h_windows_corr) +
+  aes(x = window, y = H2) +
+  geom_point() +
+  geom_hline(yintercept = 0.2, linetype = "dashed", color = "red" ) +
+  theme_classic() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black")) + 
+  labs(title = "Fig. 8 Heritability for assay corrected integrated activity levels in time windows", x = "Assay time window", y = "Corrected heritability") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(legend.position="none")
+window_h_corr
+
+
+# boxplot integrated activity for highest heritability window
+window_box_corr_3_4 <- ggplot(new_df %>% 
+                       dplyr::filter(window == "h3_4") %>%
+                       dplyr::mutate(phenotype = residuals(lm(auc ~ assay))) %>%
+                       dplyr::distinct(strain, rep, .keep_all = T)) +
+  aes(x = strain, y = phenotype) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = .25, aes(color = as.factor(assay))) + 
+  theme_classic() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black")) + 
+  labs(title = "Fig. 9 Assay regressed Integrated activity levels from 3-4 hours", x = "", y = "Residual integrated activity", color = "Assay") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(legend.position="right")
+
+
+```
+<br>
+
+## Analysis 2: Conclusions
+<br>
+1) Heritability is high for the 2-3 hour integrated activity trait (Fig. 4). <br>
+2) The raw data for the 2-3 time window don't appear to contain obvious outliers (Fig. 5). <br>
+3) There does appear to be an assay effect, but the direction of the effect is different among the strains (Fig. 6).
+

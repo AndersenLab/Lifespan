@@ -1,0 +1,332 @@
+---
+title: "WorMotel Life Span Heritability"
+author: "Tim C."
+date: "1/17/2018"
+output: html_document
+---
+
+This code uses processed survival data from Chris Fang-Yen's lab to calcualte heritability of survival traits. The data were collected with WorMotel in winter 2017 by Matt Churgin at UPenn.  
+
+```{r, echo=F, warning = F, message=F}
+library(rio)
+library(ggplot2)
+library(dplyr)
+library(survival)
+library(flexsurv)
+try(setwd(dirname(rstudioapi::getActiveDocumentContext()$path)))
+```
+
+#### Read in data
+```{r}
+df <- as.data.frame(read.csv(file = "20170116_FullProcessed.csv", header = T))
+glimpse(df)
+```
+
+#### Plot raw data
+The survival curves below are broken out by technical and biological replicate. I'm not certain what is meant by technical rep and biological rep. Can we clarify this? For the rest of the analysis I'm going to treat biological reps as blocks. 
+```{r, echo=FALSE}
+df_proc1 <- df %>%
+  dplyr::filter(activity_type != "base", !is.na(life_span)) %>%
+  dplyr::mutate(alive = ifelse(!is.na(activity), 1, 0)) %>%
+  dplyr::group_by(strain, tech_rep, bio_rep, time_d) %>%
+  dplyr::summarise(frac_alive = sum(alive)/n(),
+                   n = n())
+
+# plot survival curves for all strains
+raw_plot_all <- ggplot(df_proc1) +
+  aes(x=time_d, y=frac_alive, color=strain) +
+  geom_line() +
+  labs(x="Day", y="Fraction alive") +
+  theme(legend.position = "right") +
+  theme_grey() +
+  facet_grid(bio_rep ~ tech_rep, labeller = label_both)
+
+# plot survival curves for just N2 and CB4856
+raw_plot_subset <- ggplot(df_proc1 %>% dplyr::filter(grepl("N2", strain) | grepl("CB4856", strain))) +
+  aes(x=time_d, y=frac_alive, color=strain) +
+  geom_line() +
+  labs(x="Day", y="Fraction alive") +
+  theme(legend.position = "right") +
+  theme_grey() + 
+  facet_grid(bio_rep ~ tech_rep, labeller = label_both)
+raw_plot_all
+```
+<br>
+The data looks as expected, but there appears to be large block effects. Next, I'll fit weibull survival model to the data (two parameter survival model). The traits used for heritability will be the shape and scale parameters from the fit as well as time to 90% survival, time to 50% survival, and time to 10% survival. 
+<br>
+
+```{r, echo=FALSE}
+
+# reshape data for survival object, ignore technical replicate and include just biological reps
+df_km <- df %>%
+  dplyr::distinct(strain, bio_rep, rep, life_span) %>%
+  dplyr::mutate(status = ifelse(is.na(life_span), 0, 1)) %>%
+  dplyr::mutate(bio_rep = factor(bio_rep))
+
+
+str(df_km)
+#Asign functions to calculate 90, 50, 10 percent survival times with Weibull model.
+weibull_50 <- function(shape, scale) {
+  qweibull(0.5, shape = shape, scale = scale)
+}
+weibull_10 <- function(shape, scale) {
+  qweibull(0.9, shape = shape, scale = scale)
+}
+weibull_90 <- function(shape, scale) {
+  qweibull(0.1, shape = shape, scale = scale)
+}
+
+# establish lists to populate with for loop
+block_list <- list()
+strain_list <- list()
+
+# nested for loop to extract parameters for each strain in each block
+for(b in 1:length(unique(df_km$bio_rep))){
+  
+  block_df <- df_km %>%
+    dplyr::filter(bio_rep == (unique(df_km$bio_rep)[b]))
+
+  for(s in 1:length(unique(block_df$strain))){
+  
+    strain_df <- block_df %>%
+      dplyr::filter(strain == (unique(block_df$strain)[s]))
+  
+    w_fit = flexsurvreg(Surv(life_span, status) ~ 1, dist = "weibull", data = strain_df)
+  
+    w_90 <- summary(w_fit, fn = weibull_90, t=1)
+  
+    w_50 <- summary(w_fit, fn = weibull_50, t=1)
+  
+    w_10 <- summary(w_fit, fn = weibull_10, t=1)
+  
+    strain_surv <- data.frame(block = unique(block_df$bio_rep),
+                  strain = unique(block_df$strain)[s],
+                  w_shape_est = w_fit[["res"]][1],
+                  w_scale_est = w_fit[["res"]][2],
+                  w_surv90_est = w_90[[1]][2],
+                  w_surv50_est = w_50[[1]][2],
+                  w_surv10_est = w_10[[1]][2])
+    strain_surv <- strain_surv %>%
+      dplyr::rename('w_surv90_est' = est, 'w_surv50_est' = est.1, 'w_surv10_est' = est.2)
+
+    strain_list[[s]] <- strain_surv
+  }
+  
+  strain_df <- bind_rows(strain_list)
+  
+  block_list[[b]] <- strain_df
+  
+}
+
+#combine all data
+h_df <- dplyr::bind_rows(block_list) %>%
+  dplyr::arrange(strain, block)
+```
+
+####Plotting Weibull survival model parameters
+```{r, echo = FALSE}
+# gather data for plot
+h_df_gather <- h_df %>%
+  tidyr::gather(trait, phenotype, -block, -strain)
+
+# plot parameters
+weibull_par_plot_raw <- ggplot(h_df_gather) +
+  aes(x=strain, y=phenotype, color = block) +
+  geom_jitter(width = 0.1, height = 0.1) +
+  labs(x="Strain", y="Weibull Parameter Values") +
+  theme(legend.position = "right") +
+  theme_grey() + 
+  facet_grid(trait ~ ., labeller = label_both)
+weibull_par_plot_raw
+
+```
+<br>
+There are very small differences among strains for all traits. This suggests there is low heritability for these traits. It also looks like the block effect is much larger than the effect of strain. We can run a linear mixed model to estimate the relative effects of block vs. strain on each trait.
+<br>
+
+#### Fit linear mixed model to estimate relative size of block and strain random effects on traits 
+```{r, echo = FALSE}
+# Fit linear mixed model testing strain and block effect for each trait. Probably not right.
+w_scale_lm <- lme4::lmer(phenotype ~ 1 + (1|strain) + (1|block), data = h_df_gather%>%dplyr::filter(trait == "w_scale_est"))
+summary(w_scale_lm)
+
+w_shape_lm <- lme4::lmer(phenotype ~ 1 + (1|strain) + (1|block), data = h_df_gather%>%dplyr::filter(trait == "w_shape_est"))
+#summary(w_shape_lm)
+
+w_surv10_lm <- lme4::lmer(phenotype ~ 1 + (1|strain) + (1|block), data = h_df_gather%>%dplyr::filter(trait == "w_surv10_est"))
+#summary(w_surv10_lm)
+
+w_surv50_lm <- lme4::lmer(phenotype ~ 1 + (1|strain) + (1|block), data = h_df_gather%>%dplyr::filter(trait == "w_surv50_est"))
+#summary(w_surv50_lm)
+
+w_surv90_lm <- lme4::lmer(phenotype ~ 1 + (1|strain) + (1|block), data = h_df_gather%>%dplyr::filter(trait == "w_scale_est"))
+#summary(w_surv90_lm)
+```
+<br>
+The model summary above shows that the block effect is much larger than the strain effect for the  weibull scale parameter trait. This pattern is true for all the traits except the weibull shape parameter. The small effect of strain means that we will probably see very low heritability for most traits. It's possible we'll see higher heritability for the weibull shape parameter. 
+<br>
+
+#### Calculating heritability for traits
+```{r, echo = FALSE}
+# define heritability test
+H2.test <- function(data){
+  
+  pheno <- as.data.frame(dplyr::select(data, phenotype))[,1]
+  strain <- as.factor(data$strain)
+  
+  reffMod <- lme4::lmer(pheno ~ 1 + (1|strain))
+  
+  Variances <- as.data.frame(lme4::VarCorr(reffMod, comp = "Variance"))
+  
+  Vg <- Variances$vcov[1]
+  Ve <- Variances$vcov[2]
+  H2 <- Vg/(Vg+Ve)
+  
+  return(H2)
+}
+
+# apply heritability test to all traits
+h_list_raw <- list()
+
+for(t in 1:length(unique(h_df_gather$trait))){
+  
+  trait_df_raw <- h_df_gather %>%
+    dplyr::select(-block) %>%
+    dplyr::filter(trait == (unique(h_df_gather$trait)[t])) %>%
+    dplyr::mutate(H2 = H2.test(.))
+  
+  h_list_raw[[t]] <- trait_df_raw
+}
+
+h_cal_df_raw<- dplyr::bind_rows(h_list_raw) %>%
+  dplyr::arrange(strain)
+
+# plot heritability for each trait
+
+herit_plot_raw <- ggplot(h_cal_df_raw%>%distinct(trait, .keep_all=T)) + 
+  aes(x = trait, y = H2) +
+  ylab("Heritability") +
+  ylim(0, .5) +
+  geom_point() +
+  geom_hline(yintercept = .20, linetype="dashed", color="darkred")
+herit_plot_raw
+```
+<br>
+As expected heritability is extremely low for all traits except weibull shape parameter. Even so, the heritability is less that 0.2, which is generally what we like to see before performing a GWA study. We might be able to improve our ability to see heritability by correcting for the large block effect. I'll try that next.
+<br>
+
+####Correcting for block effects by fitting linear model phenotype ~ block for each trait, then extracting residual values of trait paramters to use in heritability calculation
+The structure of the corrected data frame is shown below. Below that is a plot of the corrected traits.
+```{r, echo = FALSE}
+#correct for block effect by fitting linear model phenotype ~ block for each trait, then extract residual values of trait paramters to calcualte heritability
+h_df_sh <- h_df %>%
+  dplyr::rename(phenotype = w_shape_est)%>%
+  dplyr::select(block, strain, phenotype)
+
+shape_ris <- data.frame(block = h_df_sh$block,
+                        strain = h_df_sh$strain, 
+                        phenotype = h_df_sh$phenotype,
+                        weibull_shape_residual =residuals(lm(phenotype ~ block, data = h_df_sh)))
+
+h_df_sc <- h_df %>%
+  dplyr::rename(phenotype = w_scale_est)%>%
+  dplyr::select(block, strain, phenotype)
+
+scale_ris <- data.frame(block = h_df_sh$block,
+                        strain = h_df_sc$strain, 
+                        phenotype = h_df_sc$phenotype,
+                        weibull_scale_residual =residuals(lm(phenotype ~ block, data = h_df_sc)))
+
+h_df_surv50 <- h_df %>%
+  dplyr::rename(phenotype = w_surv50_est)%>%
+  dplyr::select(block, strain, phenotype)
+
+surv50_ris <- data.frame(block = h_df_sh$block,
+                         strain = h_df_surv50$strain, 
+                        phenotype = h_df_surv50$phenotype,
+                        weibull_surv50_residual =residuals(lm(phenotype ~ block, data = h_df_surv50)))
+
+h_df_surv90 <- h_df %>%
+  dplyr::rename(phenotype = w_surv90_est)%>%
+  dplyr::select(block, strain, phenotype)
+
+surv90_ris <- data.frame(block = h_df_sh$block,
+                         strain = h_df_surv90$strain, 
+                         phenotype = h_df_surv90$phenotype,
+                         weibull_surv90_residual =residuals(lm(phenotype ~ block, data = h_df_surv90)))
+
+h_df_surv10 <- h_df %>%
+  dplyr::rename(phenotype = w_surv10_est)%>%
+  dplyr::select(block, strain, phenotype)
+
+surv10_ris <- data.frame(block = h_df_sh$block,
+                         strain = h_df_surv10$strain, 
+                         phenotype = h_df_surv10$phenotype,
+                         weibull_surv10_residual =residuals(lm(phenotype ~ block, data = h_df_surv10)))
+
+#Put all the residuals together in a data frame and gather
+h_df_corr <- as.data.frame(data.frame(block = shape_ris[,1],
+                                      strain = shape_ris[,2],
+                                      shape_par = shape_ris[,4],
+                                      scale_par = scale_ris[,4],
+                                      surv50_est = surv50_ris[,4],
+                                      sruv90_est = surv90_ris[,4],
+                                      surv10_est = surv10_ris[,4]))
+
+h_df_corr <- h_df_corr %>%
+  tidyr::gather(trait, phenotype, -block, -strain) %>%
+  as.data.frame()
+
+glimpse(h_df_corr)
+
+
+weibull_par_plot_corr <- ggplot(h_df_corr) +
+  aes(x=strain, y=phenotype, color = block) +
+  geom_jitter(width = 0.1, height = 0.1) +
+  labs(x="Strain", y="Corrected Weibull Parameter Values") +
+  theme(legend.position = "right") +
+  theme_grey() + 
+  facet_grid(trait ~ ., labeller = label_both)
+weibull_par_plot_corr
+```
+<br>
+The correction for block effect makes differences in strains more apparent, but they still appear to be small. I'll run the heitability test on these corrected traits.
+<br>
+
+#### Calculate heritability for corrected traits
+```{r, echo = FALSE}
+# apply heritability test to all block corrected traits
+h_list <- list()
+
+for(t in 1:length(unique(h_df_corr$trait))){
+  
+  trait_df <- h_df_corr %>%
+    dplyr::filter(trait == (unique(h_df_corr$trait)[t])) %>%
+    dplyr::mutate(H2 = H2.test(.))
+  
+  h_list[[t]] <- trait_df
+}
+
+h_cal_df <- dplyr::bind_rows(h_list) %>%
+  dplyr::arrange(strain)
+
+# plot heritability for each trait
+
+herit_plot <- ggplot(h_cal_df%>%distinct(H2, .keep_all=T)) + 
+  aes(x = trait, y = H2) +
+  ylab("Heritability") +
+  ylim(0, .5) +
+  geom_point() +
+  geom_hline(yintercept = .20, linetype="dashed", color="darkred")
+herit_plot
+
+```
+<br>
+Correcting for block effect increases the heritability estimates for all traits but they are still low for GWA, i.e. < 0.2. We could improve heritability by ensuring that all strains are treated equally before and during assays. Some things to try...
+<br>
+<br>
+1) Equal number of generations prior to assay start<br>
+2) Avoid starvation or population bottlenecking in generations leading up to assay <br>
+3) Ensuring that food supply is consistant across WorMotels<br>
+4) WormMotels should be filled with agar and food at a similar time prior to assay start <br>
+5) Control humidity and temperature across all assays 

@@ -1,0 +1,495 @@
+---
+title: "WorMotel lifespan Heritability"
+author: "Tim C."
+date: "5/17/2018"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+This code uses processed survival data from Chris Fang-Yen's lab to calcualte heritability of survival traits. The data were collected with WorMotel in spring 2018 by Matt Churgin at UPenn. Two independent bleaches of 12 strains were run on three replicate wormmotels (20 nematodes / strain). Heritability is calculated 
+
+```{r, echo=F, warning = F, message=F}
+library(rio)
+library(ggplot2)
+library(dplyr)
+library(survival)
+library(flexsurv)
+library(broom)
+library(minpack.lm)
+library(forcats)
+library(glue)
+library(scales)
+library(boot)
+try(setwd(dirname(rstudioapi::getActiveDocumentContext()$path)))
+```
+
+## Read in data and define functions
+```{r, echo=FALSE, warning=FALSE}
+dat <- as.data.frame(read.csv(file = "WildIsolateLSData_180515.csv", header = T)) %>%
+  dplyr::mutate(lifespan_days = ifelse(lifespan_days == "NaN", NA, lifespan_days))
+
+glimpse(dat)
+
+# define heritability test
+# data is data frame that contains strain and phenotype column
+# indicies are used by the boot function to sample from the 'data' data.frame
+H2.test.boot <- function(data, indicies){
+
+  d <- data[indicies,]
+
+  pheno <- as.data.frame(dplyr::select(d, phenotype))[,1]
+  strain <- as.factor(d$strain)
+
+  reffMod <- lme4::lmer(pheno ~ 1 + (1|strain))
+
+  Variances <- as.data.frame(lme4::VarCorr(reffMod, comp = "Variance"))
+
+  Vg <- Variances$vcov[1]
+  Ve <- Variances$vcov[2]
+  H2 <- Vg/(Vg+Ve)
+
+  # errors <- sqrt(diag(lme4::VarCorr(reffMod, comp = "Variance")$strain))
+
+  return(H2)
+}
+# data is data frame that contains strain and phenotype column
+H2.test <- function(data){
+
+  pheno <- as.data.frame(dplyr::select(data, phenotype))[,1]
+  strain <- as.factor(data$strain)
+
+  reffMod <- lme4::lmer(pheno ~ 1 + (1|strain))
+
+  Variances <- as.data.frame(lme4::VarCorr(reffMod, comp = "Variance"))
+
+  Vg <- Variances$vcov[1]
+  Ve <- Variances$vcov[2]
+  H2 <- Vg/(Vg+Ve)
+
+  # errors <- sqrt(diag(lme4::VarCorr(reffMod, comp = "Variance")$strain))
+
+  return(H2)
+}
+
+# df is data frame that contains strain and phenotype column
+H2.calc <- function(df, boot = T){
+
+
+  if(boot == T){
+    # bootstrapping with 1000 replications
+    results <- boot(data=df, statistic=H2.test.boot, R=1000)
+
+    # get 95% confidence interval
+    ci <- boot.ci(results, type="bca")
+
+    H2_errors <- data.frame(H2 = ci$t0, ci_l = ci$bca[4], ci_r = ci$bca[5])
+
+    return(H2_errors)
+
+  } else {
+
+    H2 <- data.frame(H2 = H2.test(data = df), ci_l = NA, ci_r = NA)
+    return(H2)
+  }
+
+}
+
+
+# remove outliers function
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- NA
+  y[x > (qnt[2] + H)] <- NA
+  y
+}
+```
+
+### Survival plot
+```{r, echo=FALSE, warning=FALSE}
+# data shaping
+dat_proc <- dat %>%
+  dplyr::filter(!is.na(lifespan_days), activity_type == -1) %>%
+  dplyr::group_by(replicate_num, plate_num, strain, worm_num) %>%
+  dplyr::mutate(alive = ifelse(time_days >= lifespan_days, 0, 1)) %>%
+  dplyr::group_by(replicate_num, plate_num, strain, time_days) %>%
+  dplyr::summarise(frac_alive = sum(alive)/n(),
+                   n = n())
+
+# plot survival curves for all strains
+raw_plot_all <- ggplot(dat_proc) +
+  aes(x=time_days, y=frac_alive, color=strain) +
+  geom_line() +
+  theme_light() +
+  labs(x="Day", y="Fraction alive") +
+  theme(legend.position = "right") +
+  facet_grid(replicate_num ~ plate_num, labeller = label_both)
+raw_plot_all
+
+
+```
+<br> Survival curves look as expected. Replicate two appears to have less variable lifespans.
+
+## Lifespan Heritability
+```{r, echo=FALSE, warning=FALSE}
+# lifespan dataset
+df_h2 <- dat %>%
+  dplyr::distinct(strain, replicate_num, plate_num, worm_num, lifespan_days) %>%
+  dplyr::select(replicate_num, plate_num, strain, worm_num, lifespan_days) %>%
+  dplyr::mutate(status = ifelse(is.na(lifespan_days), 0, 1)) %>%
+  dplyr::mutate(plate_num = factor(plate_num)) 
+
+# plot lifespan
+lifespan_plot <- ggplot(df_h2) +
+  geom_boxplot(aes(x = strain, y = lifespan_days), outlier.shape = NA) +
+  geom_jitter(aes(x = strain, y = lifespan_days, color = as.factor(replicate_num)), width = .25, alpha = 0.5) +
+  theme_light() +
+  labs(x="", y="Lifespan (d)", colour = "replicate", title = "" ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#lifespan_plot
+
+# calculate heritability for lifespan
+df_h2_cal <- df_h2 %>%
+  dplyr::filter(!is.na(lifespan_days)) %>%
+  dplyr::group_by(plate_num, strain) %>%
+  dplyr::mutate(phenotype = mean(lifespan_days)) %>%
+  dplyr::distinct(plate_num, strain, phenotype) %>%
+  dplyr::mutate(trait = "lifespan") 
+# finish heritability calculation
+df_h2_only <- df_h2_cal %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x)
+
+# plot means for plates
+lifespan_plot <- ggplot(df_h2_cal) +
+  geom_boxplot(aes(x = fct_reorder(strain, phenotype), y = phenotype), outlier.shape = NA) +
+  geom_jitter(aes(x = strain, y = phenotype, color = as.factor(plate_num)), width = .25, alpha = 0.5) +
+  theme_light() +
+  labs(x="", y="Mean Lifespan (d)", colour = "plate", title = "Heritability: 0.03" ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#lifespan_plot
+
+# calculate heritability for two independent replicates 2 reps
+df_h2_cal_ir <- df_h2 %>%
+  dplyr::filter(!is.na(lifespan_days)) %>%
+  dplyr::group_by(replicate_num, plate_num, strain) %>%
+  dplyr::mutate(phenotype = mean(lifespan_days)) %>%
+  dplyr::group_by(replicate_num, strain) %>%
+  dplyr::mutate(phenotype = mean(lifespan_days)) %>%
+  dplyr::distinct(replicate_num, strain, phenotype) %>%
+  dplyr::mutate(trait = "lifespan")
+# finish heritability calculation 2 reps
+df_h2_only_ir <- df_h2_cal_ir %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x)
+
+
+# plot means for replicates (avg for individual nematodes per plate avgeraged across all three plates in replicate)
+lifespan_plot_ir <- ggplot(df_h2_cal_ir) +
+  geom_boxplot(aes(x = fct_reorder(strain, phenotype), y = phenotype), outlier.shape = NA) +
+  geom_jitter(aes(x = strain, y = phenotype, color = as.factor(replicate_num)), width = .25, alpha = 0.5) +
+  theme_light() +
+  labs(x="", y="Mean Lifespan (d)", colour = "replicate", title = "Lifespan Heritability: 3.021841e-17" ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+lifespan_plot_ir
+
+# measure block effect
+ls_block_effect <- lm(phenotype ~ replicate_num, data = df_h2 %>%
+  dplyr::filter(!is.na(lifespan_days)) %>%
+  dplyr::group_by(replicate_num, plate_num, strain) %>%
+  dplyr::mutate(phenotype = mean(lifespan_days)) %>%
+  dplyr::group_by(replicate_num, strain) %>%
+  dplyr::mutate(phenotype = mean(lifespan_days)) %>%
+  dplyr::distinct(replicate_num, strain, phenotype) %>%
+  dplyr::mutate(trait = "lifespan") %>%
+  dplyr::ungroup())
+#summary(ls_block_effect)
+
+# regress out block effect 2 reps
+df_h2_cal_ir_regressed <- df_h2 %>%
+  dplyr::filter(!is.na(lifespan_days)) %>%
+  dplyr::group_by(replicate_num, plate_num, strain) %>%
+  dplyr::mutate(phenotype = mean(lifespan_days)) %>%
+  dplyr::group_by(replicate_num, strain) %>%
+  dplyr::mutate(phenotype = mean(lifespan_days)) %>%
+  dplyr::distinct(replicate_num, strain, phenotype) %>%
+  dplyr::mutate(trait = "lifespan") %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(phenotype = residuals(lm(phenotype ~ replicate_num))) 
+
+# finish heritability calculation 2 reps
+df_h2_only_ir_regressed <- df_h2_cal_ir_regressed %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x)
+
+# plot means for replicates (avg for individual nematodes per plate avgeraged across all three plates in replicate) with replicate regressed 2 reps
+lifespan_plot_ir_reg <- ggplot(df_h2_cal_ir_regressed) +
+  geom_boxplot(aes(x = fct_reorder(strain, phenotype), y = phenotype), outlier.shape = NA) +
+  geom_jitter(aes(x = strain, y = phenotype, color = as.factor(replicate_num)), width = .25, alpha = 0.5) +
+  theme_light() +
+  labs(x="", y="Residual mean lifespan", colour = "replicate", title = "Assay regressed lifespan heritability: 0.2704377" ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+lifespan_plot_ir_reg
+```
+<br>There is a block effect, correcting for this effect increases lifespan heritability to 0.27.
+
+## Fit weibull survival model
+```{r, echo=FALSE, warning=FALSE}
+# reshape data for survival object, ignore technical replicate and include just plate reps
+dat_w <- dat %>%
+  dplyr::distinct(strain, plate_num, worm_num, lifespan_days) %>%
+  dplyr::select(strain, plate_num, worm_num, lifespan_days) %>%
+  dplyr::mutate(status = ifelse(is.na(lifespan_days), 0, 1)) %>%
+  dplyr::mutate(plate_num = factor(plate_num))
+
+#Asign functions to calculate 90, 50, 10 percent survival times with Weibull model.
+weibull_50 <- function(shape, scale) {
+  qweibull(0.5, shape = shape, scale = scale)
+}
+weibull_10 <- function(shape, scale) {
+  qweibull(0.9, shape = shape, scale = scale)
+}
+weibull_90 <- function(shape, scale) {
+  qweibull(0.1, shape = shape, scale = scale)
+}
+
+# establish lists to populate with for loop
+block_list <- list()
+strain_list <- list()
+
+# Calculate weibull shape and scale parameters for all strains in each plate
+for(b in 1:length(unique(dat_w$plate_num))){
+  
+  block_df <- dat_w %>%
+    dplyr::filter(plate_num == (unique(dat_w$plate_num)[b]))
+
+  for(s in 1:length(unique(block_df$strain))){
+  
+    strain_df <- block_df %>%
+      dplyr::filter(strain == (unique(block_df$strain)[s]))
+    
+    if(sum(strain_df$status) != 0){
+    #run weibull fit and save parameters
+    w_fit = flexsurvreg(Surv(lifespan_days, status) ~ 1, dist = "weibull", data = strain_df)
+  
+    w_90 <- summary(w_fit, fn = weibull_90, t=1)
+  
+    w_50 <- summary(w_fit, fn = weibull_50, t=1)
+  
+    w_10 <- summary(w_fit, fn = weibull_10, t=1)
+  
+    strain_surv <- data.frame(plate_num = unique(block_df$plate_num),
+                  strain = unique(block_df$strain)[s],
+                  shape = w_fit[["res"]][1],
+                  scale = w_fit[["res"]][2],
+                  LT10 = w_90[[1]][2],
+                  LT50 = w_50[[1]][2],
+                  LT90 = w_10[[1]][2])
+    strain_surv <- strain_surv %>%
+      dplyr::rename('LT10' = est, 'LT50' = est.1, 'LT90' = est.2)
+
+    strain_list[[s]] <- strain_surv 
+
+    } else {
+      #fill in strain surv with NAs
+      strain_surv <- data.frame(plate_num = unique(block_df$plate_num),
+                  strain = unique(block_df$strain)[s],
+                  shape = NA,
+                  scale = NA,
+                  LT10 = NA,
+                  LT50 = NA,
+                  LT90 = NA)
+
+    strain_list[[s]] <- strain_surv 
+  }
+  }
+  
+  strain_df <- bind_rows(strain_list)
+  
+  block_list[[b]] <- strain_df
+}
+
+#combine all data
+h_df <- dplyr::bind_rows(block_list) %>%
+  dplyr::arrange(strain, plate_num)
+
+# take average of model fits for three plates in each independent replicate
+h_df_ir <- h_df %>%
+  dplyr::mutate(replicate_num = ifelse(as.numeric(as.character(plate_num)) <= 3, 1, 2)) %>%
+  dplyr::group_by(replicate_num, strain) %>%
+  dplyr::mutate(shape = mean(shape, na.rm =T),
+                scale = mean(scale, na.rm = T),
+                LT10 = mean(LT10, na.rm = T),
+                LT50 = mean(LT50, na.rm = T),
+                LT90 = mean(LT90, na.rm = T)) %>%
+  dplyr::distinct(replicate_num, strain, .keep_all = T)
+
+# gather data for plot 6 reps
+h_df_gather <- h_df %>%
+  tidyr::gather(trait, phenotype, -plate_num, -strain)
+
+# gather data for plot 2 reps
+h_df_ir_gather <- h_df_ir %>%
+  tidyr::gather(trait, phenotype, -replicate_num, -plate_num, -strain) %>%
+  dplyr::select(-plate_num)
+
+# plot parameters 6 reps
+weibull_par_plot_raw <- ggplot(h_df_gather) +
+  geom_boxplot(aes(x=strain, y=phenotype), color = "grey", outlier.shape = NA) +
+  geom_jitter(aes(x=strain, y=phenotype, color = plate_num), width = 0.25, height = 0.1) +
+  labs(x="", y="Weibull Parameter Values", color = "plate", title = "") +
+  theme(legend.position = "right") +
+  facet_grid(trait ~ ., scales = "free") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#weibull_par_plot_raw
+
+# plot parameters 2 reps
+weibull_par_plot_raw <- ggplot(h_df_ir_gather) +
+  geom_boxplot(aes(x=strain, y=phenotype), color = "grey", outlier.shape = NA) +
+  geom_jitter(aes(x=strain, y=phenotype, color = as.factor(replicate_num)), width = 0.25, height = 0.1) +
+  labs(x="", y="Weibull Parameter Values", color = "replicate", title = "") +
+  theme(legend.position = "right") +
+  facet_grid(trait ~ ., scales = "free") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+weibull_par_plot_raw
+
+```
+<br> N2 seems like an outlier for shape parameter.
+
+## Calculate heritability of weibull fit parameters
+```{r, echo=FALSE, warning=FALSE}
+# calculate heritability for weibull fit parameters 6 reps
+dat_wf_h <- h_df_gather %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x)
+
+# calculate heritability for weibull fit parameters 2 reps
+dat_wf_h_ir <- h_df_ir_gather %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x)
+
+#Repeat heritability calculation without N2 6 reps
+dat_wf_h_no_n2 <- h_df_gather %>%
+  dplyr::filter(strain != "N2") %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x) %>%
+  dplyr::ungroup()
+
+#Repeat heritability calculation without N2 2 reps
+dat_wf_h_ir_no_n2 <- h_df_ir_gather %>%
+  dplyr::filter(strain != "N2") %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x) %>%
+  dplyr::ungroup()
+
+#heritability plot with and without N2 vs with N2, also plotting weibull fits and survival curves 6 reps
+h2_6reps <- ggplot() +
+  geom_point(data = dat_wf_h, aes(x = trait, y = H2), alpha = 0.5, color = "red", size = 4) +
+  theme_light() +
+  geom_jitter(data = dat_wf_h_no_n2, aes(x = trait, y = H2), alpha = 0.5, color = "black", size = 4, width= 0.1) +
+  labs(x="Weibull fit parameter", y="Heritability", title = "6 reps: red = with N2, black = without N2")
+#h2_6reps
+
+weibull_par_plot_raw <- ggplot(h_df_gather) +
+  geom_boxplot(aes(x=strain, y=phenotype), color = "grey") +
+  geom_jitter(aes(x=strain, y=phenotype, color = plate_num), width = 0.1, height = 0.1) +
+  labs(x="", y="Weibull Parameter Values", color = "plate") +
+  theme_light() +
+  theme(legend.position = "right") +
+  facet_grid(trait ~ ., scales = "free") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#weibull_par_plot_raw
+
+#heritability plot with and without N2 vs with N2, also plotting weibull fits and survival curves 2 reps
+weibull_par_plot_raw <- ggplot(h_df_ir_gather) +
+  geom_boxplot(aes(x=strain, y=phenotype), color = "grey") +
+  geom_jitter(aes(x=strain, y=phenotype, color = as.factor(replicate_num)), width = 0.1, height = 0.1) +
+  labs(x="", y="Weibull Parameter Values", color = "replicate") +
+  theme_light() +
+  theme(legend.position = "right") +
+  facet_grid(trait ~ ., scales = "free") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#weibull_par_plot_raw
+
+h2_2reps <- ggplot() +
+  geom_point(data = dat_wf_h_ir, aes(x = trait, y = H2), alpha = 0.5, color = "red", size = 4) +
+  theme_light() +
+  geom_jitter(data = dat_wf_h_no_n2, aes(x = trait, y = H2), alpha = 0.5, color = "black", size = 4, width= 0.1) +
+  labs(x="Weibull fit parameter", y="Heritability", title = "Weibull paramter heritability: red = with N2, black = without N2")
+h2_2reps
+```
+<br> Heritability for shape parameter is high only because of N2 strain
+
+## Weibull fitting examples
+```{r, echo=FALSE, warning=FALSE}
+# visualizing N2 fit vs. MY16 fits: Shape parameter high for N2 b/c variation in survival is low 6 reps
+n2_surv_fit <- ggplot(dat_proc %>% dplyr::filter(strain =="N2" | strain == "MY16")) +
+  aes(x=time_days, y=frac_alive, color = strain) +
+  geom_point(alpha = 0.5) +
+  theme(legend.position = "right") +
+  stat_function(fun=function(x)exp(1)^-((x/10.770605)^6.429521), geom="line", color = "#00BFC4") +
+  stat_function(fun=function(x)exp(1)^-((x/11.217003)^6.524106), geom="line", color = "#00BFC4") +
+  stat_function(fun=function(x)exp(1)^-((x/13.810381)^3.413225), geom="line", color = "#00BFC4") +
+  stat_function(fun=function(x)exp(1)^-((x/11.529975)^6.687168), geom="line", color = "#00BFC4") +
+  stat_function(fun=function(x)exp(1)^-((x/12.254437)^5.311160), geom="line", color = "#00BFC4") +
+  stat_function(fun=function(x)exp(1)^-((x/13.515178)^4.590158), geom="line", color = "#00BFC4") +
+  stat_function(fun=function(x)exp(1)^-((x/8.860129)^1.748245), geom="line", color = "#F8766D") +
+  stat_function(fun=function(x)exp(1)^-((x/12.912245)^2.061356), geom="line", color = "#F8766D") +
+  stat_function(fun=function(x)exp(1)^-((x/18.379138)^3.214658), geom="line", color = "#F8766D") +
+  stat_function(fun=function(x)exp(1)^-((x/16.754905)^3.991739), geom="line", color = "#F8766D") +
+  stat_function(fun=function(x)exp(1)^-((x/7.499330)^1.444372), geom="line", color = "#F8766D") +
+  stat_function(fun=function(x)exp(1)^-((x/10.286655)^1.566060), geom="line", color = "#F8766D") +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black")) + 
+  labs(title = "", color = "", x = "Day", y = "Fraction Alive") +
+  theme(legend.position="right")
+n2_surv_fit
+# find colors for 2 groups. Enter 2 below, 8 groups enter 8
+# show_col(hue_pal()(8))
+
+# Effect of shape and scale parameters, N2 has large shape parameter b/c this is capturing variation in mean lifespan. 
+ weibull_parameter_space <- ggplot(data = data.frame(x = 0), mapping = aes(x = x)) +
+  xlim(0,30) +
+  ylim(0,1) +
+  stat_function(fun=function(x)exp(1)^-((x/5)^1), geom="line", color = "red") +
+  stat_function(fun=function(x)exp(1)^-((x/10)^1), geom="line", color = "orange") +
+  stat_function(fun=function(x)exp(1)^-((x/20)^1), geom="line", color = "green") +
+  stat_function(fun=function(x)exp(1)^-((x/1)^1), geom="line", color = "blue") +
+  stat_function(fun=function(x)exp(1)^-((x/10)^2.5), geom="line", color = "purple") +
+  stat_function(fun=function(x)exp(1)^-((x/10)^5), geom="line", color = "pink") +
+  stat_function(fun=function(x)exp(1)^-((x/5)^2.5), geom="line", color = "purple") +
+  stat_function(fun=function(x)exp(1)^-((x/5)^5), geom="line", color = "pink") +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black")) + 
+  labs(title = "Weibull parameter space", color = "plate", x = "Day", y = "Fraction Alive") +
+  theme(legend.position="right")
+#weibull_parameter_space
+ 
+```
+<br> Large N2 shape parameter is largely driven by rapid decline in survival relative to other strains.

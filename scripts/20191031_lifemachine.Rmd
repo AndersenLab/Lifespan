@@ -1,0 +1,357 @@
+---
+title: "20191031_Life_machine_analysis"
+author: "Tim C."
+date: "6/26/2019"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+
+```{r, echo=F, warning = F, message=F}
+#!/usr/bin/env Rscript
+#Load necessary packages
+library(tidyverse)
+library(rio)
+library(viridis)
+library(boot)
+library(sommer)
+# set working directory
+setwd(glue::glue("{dirname(rstudioapi::getActiveDocumentContext()$path)}/.."))
+
+########################
+### define functions ###
+########################
+# Heritability
+# data is data frame that contains strain and phenotype column
+# indicies are used by the boot function to sample from the 'data' data.frame
+H2.test.boot <- function(data, indicies){
+  
+  d <- data[indicies,]
+  
+  pheno <- as.data.frame(dplyr::select(d, phenotype))[,1]
+  strain <- as.factor(d$strain)
+  
+  reffMod <- lme4::lmer(pheno ~ 1 + (1|strain))
+  
+  Variances <- as.data.frame(lme4::VarCorr(reffMod, comp = "Variance"))
+  
+  Vg <- Variances$vcov[1]
+  Ve <- Variances$vcov[2]
+  H2 <- Vg/(Vg+Ve)
+  
+  # errors <- sqrt(diag(lme4::VarCorr(reffMod, comp = "Variance")$strain))
+  
+  return(H2)
+}
+# data is data frame that contains strain and phenotype column
+H2.test <- function(data){
+  
+  pheno <- as.data.frame(dplyr::select(data, phenotype))[,1]
+  strain <- as.factor(data$strain)
+  
+  reffMod <- lme4::lmer(pheno ~ 1 + (1|strain))
+  
+  Variances <- as.data.frame(lme4::VarCorr(reffMod, comp = "Variance"))
+  
+  Vg <- Variances$vcov[1]
+  Ve <- Variances$vcov[2]
+  H2 <- Vg/(Vg+Ve)
+  
+  # errors <- sqrt(diag(lme4::VarCorr(reffMod, comp = "Variance")$strain))
+  
+  return(H2)
+}
+
+# df is data frame that contains strain and phenotype column
+H2.calc <- function(df, boot = T){
+  
+  
+  if(boot == T){
+    # bootstrapping with 1000 replications
+    results <- boot(data=df, statistic=H2.test.boot, R=10000) # can reduce value to save time (500 is resonable most of the time). if you Error in bca.ci(boot.out, conf, index[1L], L = L, t = t.o, t0 = t0.o,  : estimated adjustment 'a' is NA, then you need to increase R value.
+    
+    # get 95% confidence interval
+    ci <- boot.ci(results, type="bca")
+    
+    H2_errors <- data.frame(H2 = ci$t0, ci_l = ci$bca[4], ci_r = ci$bca[5])
+    
+    return(H2_errors)
+    
+  } else {
+    
+    H2 <- data.frame(H2 = H2.test(data = df), ci_l = NA, ci_r = NA)
+    return(H2)
+  }
+  
+}
+
+# remove outliers function (tukey's fences)
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- NA
+  y[x > (qnt[2] + H)] <- NA
+  y
+}
+```
+
+```{r, echo=F, warning = F, message=F}
+##############################################################################################
+### R01 data analysis: Broad-sense and narrow-sense heritability for Patrick Phillips data ###
+##############################################################################################
+# Read in data from lifespan machine patrick phillips lab
+lm_df1 <- data.table::fread('data/CeNDR_lifespans.csv', header = T) %>%
+  dplyr::mutate(strain = ifelse(strain == "EC19191", "ECA191",
+                                ifelse(strain == "PL238", "DL238", strain)))
+lm_df2 <- data.table::fread('data/CeNDR_071919.csv', header = T) %>%
+  dplyr::mutate(`Censored Reason` = as.character(`Censored Reason`),
+                `Event Observation Type` = as.character(`Event Observation Type`)) %>%
+  dplyr::select(device = Device,
+                exp = Experiment,
+                plate = `Plate Name`,
+                row = `Plate Row`,
+                column = `Plate Column`,
+                strain = `Strain`,
+                temp = `Culturing Temperature`,
+                food = `Food Source`,
+                event_freq = `Event Frequency`,
+                ls = `Age at Death (d)`,
+                DNMF = `Duration Not Fast Moving (d)`,
+                gap_days = `Longest Gap in Measurement (d)`,
+                censor = `Censored`,
+                censor_reason = `Censored Reason`,
+                event_observation_type = `Event Observation Type`)
+
+# Join lm dataframes and calculate lifespan and healthspan traits per replicate.No regression of device effects or anything
+lm_df <- dplyr::full_join(lm_df1, lm_df2) %>%
+  dplyr::filter(censor != 1) %>% # remove censored data
+  dplyr::mutate(rep = ifelse(strain == "CB4856" & is.na(rep), 5,
+                             ifelse(strain == "CX11314" & is.na(rep), 5, rep))) %>% # give CB4856 and CX11314 a fifth replicate. I'm not sure if this is appropriate becuase I don't know what constitutes a replicate
+  dplyr::group_by(strain, rep) %>%
+  dplyr::mutate(mean_ls = mean(ls),
+                sd_ls = sd(ls),
+                cv_ls = sd_ls/mean_ls,
+                mean_DNMF = mean(DNMF),
+                sd_DNMF = sd(DNMF),
+                cv_DNMF = sd_DNMF/mean_DNMF) %>% # The DNMF has some impossible numbers, we need to clarify what those are
+  dplyr::ungroup()
+
+# data shaping
+lm_df_proc_all <- lm_df %>%
+  dplyr::select(exp, strain, rep, ls, DNMF) %>%
+  tidyr::gather(trait, phenotype, -exp, -strain, -rep)
+
+# data shaping
+lm_df_proc <- lm_df %>%
+  dplyr::select(exp, strain, rep, mean_ls, sd_ls, cv_ls) %>%
+  dplyr::distinct(strain, rep, .keep_all = TRUE) %>%
+  tidyr::gather(trait, phenotype, -exp, -strain, -rep)
+
+# remove outliers in new df
+lm_df_proc_outliers_removed <- lm_df_proc %>%
+  dplyr::group_by(strain, trait) %>%
+  dplyr::mutate(phenotype = remove_outliers(phenotype)) %>%
+  dplyr::ungroup() %>%
+  dplyr::filter(!is.na(phenotype))
+
+# flag outliers in old data frame
+lm_df_proc <- lm_df_proc %>%
+  dplyr::group_by(strain, trait) %>%
+  dplyr::mutate(outlier = (remove_outliers(phenotype)),
+                outlier = ifelse(is.na(outlier), TRUE, FALSE)) %>%
+  dplyr::ungroup()
+
+########################################
+### Heritability with sommer package ###
+########################################
+# Build trait file for cegwas2, starting with simple mean lifespan for each strain. This is a mean of means from the 4-5 replicates.
+traitfile_small <- lm_df %>%
+  dplyr::select(strain, rep, mean_ls, sd_ls, cv_ls) %>%
+  dplyr::distinct(strain, rep, .keep_all = TRUE) %>%
+  dplyr::select(strain, mean_ls) %>%
+  dplyr::arrange(strain) %>%
+  dplyr::group_by(strain) %>%
+  dplyr::summarise(mean_ls = mean(mean_ls)) %>%
+  dplyr::ungroup()
+
+# load in genotype matrix from cegwas2-nf (WI.20180527.impute.vcf.gz used to generate matrix)
+geno_matrix <- data.table::fread("data/life_machine_Genotype_Matrix.tsv")
+
+# df with strain, strain, trait value
+df_y <- traitfile_small %>%
+  dplyr::rename(value = mean_ls) %>%
+  dplyr::mutate(strain1=strain, strain2=strain) %>%
+  dplyr::select(-strain)
+
+A <- sommer::A.mat(t(dplyr::select(geno_matrix, -CHROM, -POS, -REF, -ALT)))
+E <- sommer::E.mat(t(dplyr::select(geno_matrix, -CHROM, -POS, -REF, -ALT)))
+
+df_H2 <- sommer::mmer(value~1, random=~vs(strain1,Gu=A)+vs(strain2,Gu=E), data=df_y)
+
+(summary(df_H2)$varcomp)
+
+# narrow-sense H2 (additive only). Note, we never worry about dominance because we assume homozygous.
+lm_sommer_narrow_h2 <- pin(df_H2, H2 ~ (V1) / (V1+V2+V3))
+
+# Broad-sense H2 (additive + epistatic variance) / (additive, epistatic, error)
+lm_sommer_broad_h2 <- pin(df_H2, H2 ~ (V1+V2) / (V1+V2+V3))
+
+####################################
+### Heritability with lmer model ###
+####################################
+# Using andersen lab functions to claculate heritbaility by mean_ls as measured by 4-5 replicates.
+lm_df_H2_ls <- lm_df_proc_all %>%
+  dplyr::filter(trait == "mean_ls") 
+
+lm_df_H2_ls_outliers_removed <- lm_df_proc_outliers_removed %>%
+  dplyr::filter(trait == "mean_ls")
+
+# calculate H2 for both traits
+lm_ls_h2 <- H2.calc(lm_df_H2_ls, boot = T) %>%
+  dplyr::mutate(trait = as.factor(c("replicate mean\n lifespans")))
+
+lm_ls_h2_outliers_removed <- H2.calc(lm_df_H2_ls_outliers_removed, boot = T)
+
+# ploting data
+lm_ls_h2_plot <- ggplot(lm_ls_h2) +
+  geom_point(aes(x = trait, y = H2), size = 3) +
+  geom_errorbar(aes(ymin=ci_l, ymax=ci_r, x = trait), colour="black", width=0.05) +
+  labs(x = "", y = "Heritability") +
+  ylim(0, 1) +
+  theme_bw()+
+  theme(axis.text = element_text(colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+###################################################################################################
+### Using andersen lab functions to claculate heritbaility by ls as measured on all replicates. ###
+###################################################################################################
+lm_df_H2_ls_all <- lm_df_proc_all %>%
+  dplyr::filter(trait == "ls") 
+
+# calculate H2 for both traits
+lm_ls_h2_all <- H2.calc(lm_df_H2_ls_all, boot = T) %>%
+  dplyr::mutate(trait = as.factor(c("all individual\nlifespans")))
+
+# convert sommer heritability estimates to match H2.calc function output
+lm_sommer_broad_h2_proc <- lm_sommer_broad_h2 %>%
+  dplyr::rename(H2 = Estimate) %>%
+  dplyr::mutate(ci_r = H2 + SE,
+                ci_l = H2 - SE,
+                estimator = "sommer") %>%
+  dplyr::select(-SE)
+
+# convert lm_ls_h2
+lm_ls_h2 <- lm_ls_h2 %>%
+  dplyr::mutate(trait = "replicate mean lifespans")
+
+# join H2 plots
+lm_ls_h2_full <- bind_rows(lm_ls_h2, lm_ls_h2_all) %>%
+  dplyr::rename(estimator = trait) %>%
+  bind_rows(lm_sommer_broad_h2_proc) %>%
+  dplyr::mutate(estimator = ifelse(estimator == "all lifespans", "H2.calc - all individuals",
+                                   ifelse(estimator == "replicate mean lifespans", "H2.calc - replicate means only", "Sommer package")))
+
+# ploting data
+lm_ls_h2_all_plot <- ggplot(lm_ls_h2_all) +
+  geom_point(aes(x = trait, y = H2), size = 3) +
+  geom_errorbar(aes(ymin=ci_l, ymax=ci_r, x = trait), colour="black", width=0.05) +
+  labs(x = "", y = "Heritability") +
+  ylim(0, 1) +
+  theme_bw()+
+  theme(axis.text = element_text(colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+lm_ls_h2_full_plot <- ggplot(lm_ls_h2_full) +
+  geom_point(aes(x = factor(estimator, levels = c("H2.calc - replicate means only", "H2.calc - all individuals", "Sommer package")), y = H2, fill = estimator), size = 3, shape = 21) +
+  geom_errorbar(aes(ymin=ci_l, ymax=ci_r, x = estimator), colour="black", width=0.05) +
+  labs(x = "", y = "Broad-sense Heritability", title = "CeNDR lifespan heritability") +
+  ylim(-.2, 1) +
+  theme_bw()+
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+lm_ls_h2_full_plot
+
+ggsave(lm_ls_h2_full_plot, filename = "plots/life_machine_H2_estimators.png", width = 5, height = 5, dpi = 300)
+
+# just with H2.calc estimator
+lm_ls_h2_H2.calc_all <- ggplot(lm_ls_h2_full %>% dplyr::filter(estimator == "H2.calc - all individuals")) +
+  geom_point(aes(x = factor(estimator, levels = c("H2.calc - replicate means only", "H2.calc - all individuals", "Sommer package")), y = H2, fill = estimator), size = 3, shape = 21) +
+  geom_errorbar(aes(ymin=ci_l, ymax=ci_r, x = estimator), colour="black", width=0.05) +
+  labs(x = "", y = "Broad-sense Heritability", title = "CeNDR lifespan heritability") +
+  ylim(0, 1) +
+  theme_bw()+
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+lm_ls_h2_H2.calc_all
+ggsave(lm_ls_h2_H2.calc_all, filename = "plots/life_machine_H2_H2.calc_all_individuals.png", width = 5, height = 5, dpi = 300)
+
+```
+
+##Plotting CX11314 replicates
+```{r, echo=F, warning = F, message=F}
+# Shaping data
+lm_df_proc_all2 <- lm_df_proc_all %>%
+  dplyr::group_by(trait, strain) %>%
+  dplyr::mutate(mean_pheno = mean(phenotype),
+                median_pheno = median(phenotype)) %>%
+  dplyr::group_by(strain, trait, rep) %>%
+  dplyr::mutate(n = n()) %>%
+  dplyr::group_by(trait) %>%
+  dplyr::mutate(trait_avg_n = mean(n)) %>%
+  dplyr::ungroup()
+  
+cx_ls_reps_plot <- ggplot(lm_df_proc_all2 %>% dplyr::filter(strain == "CX11314" & trait == "ls")) +
+  aes(x = rep, y = phenotype, fill = as.character(rep), group = rep) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(aes(fill = as.character(rep)), position = position_jitterdodge(jitter.width = 0.5), shape = 21) +
+  theme_bw() +
+  ylim(0,60) +
+  labs(y="lifespan (d)", x = "replicate", fill = "", title = "CX11314 lifespan replicates") +
+  theme(axis.text = element_text(color = "black"),
+        strip.text = element_text(color = "black"),
+        legend.position = "none")
+ggsave(cx_ls_reps_plot, filename = "plots/CX11314_lifespan_replicates.png", width = 4, height = 4, dpi = 300)
+
+first_ls_reps_plot <- ggplot(lm_df_proc_all2 %>% dplyr::filter(trait == "ls", rep %in% c(1, 2, 3,4))) +
+  aes(x = factor(strain, levels = lm_df_proc_all2 %>% 
+                   dplyr::filter(trait == "ls") %>%
+                   dplyr::distinct(strain, median_pheno) %>% 
+                   arrange(median_pheno) %>% 
+                   pull(strain)), y = phenotype, group = strain) +
+  geom_point(aes(fill = as.character(rep)), position = position_jitterdodge(jitter.width = 0.5), shape = 21, size = 1) +
+  geom_boxplot(outlier.shape = NA, alpha = 0) +
+  theme_bw() +
+  ylim(0,60) +
+  labs(y="lifespan (d)", x = "", fill = "replicate", title = "CeNDR Lifespans") +
+  theme(axis.text = element_text(color = "black"),
+        strip.text = element_text(color = "black"),
+        legend.position = "right",
+        axis.text.x = element_text(angle = 90))
+
+
+
+all_ls_reps_plot <- ggplot(lm_df_proc_all2 %>% dplyr::filter(trait == "ls")) +
+  aes(x = factor(strain, levels = lm_df_proc_all2 %>% 
+                   dplyr::filter(trait == "ls") %>%
+                   dplyr::distinct(strain, median_pheno) %>% 
+                   arrange(median_pheno) %>% 
+                   pull(strain)), y = phenotype, group = strain) +
+  geom_point(aes(fill = as.character(rep)), position = position_jitterdodge(jitter.width = 0.5), shape = 21, size = 1) +
+  geom_boxplot(outlier.shape = NA, alpha = 0) +
+  theme_bw() +
+  ylim(0,60) +
+  labs(y="lifespan (d)", x = "", fill = "replicate", title = "CeNDR Lifespans") +
+  theme(axis.text = element_text(color = "black"),
+        strip.text = element_text(color = "black"),
+        legend.position = "right",
+        axis.text.x = element_text(angle = 90))
+all_ls_reps_plot
+
+ggsave(all_ls_reps_plot, filename = "plots/life_machine_lifespans.png", width = 7.5, height = 4, dpi = 300)
+```

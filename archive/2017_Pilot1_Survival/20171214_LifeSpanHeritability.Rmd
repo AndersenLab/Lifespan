@@ -1,0 +1,242 @@
+---
+title: "WorMotel Life Span Heritability"
+author: "Tim C."
+date: "1/17/2018"
+output: html_document
+---
+
+This code uses processed survival data from Chris Fang-Yen's lab to calcualte heritability of survival traits. The data were collected with WorMotel in winter 2017 by Matt Churgin at UPenn.  
+
+```{r, echo=F, warning = F, message=F}
+library(rio)
+library(ggplot2)
+library(dplyr)
+library(survival)
+library(flexsurv)
+try(setwd(dirname(rstudioapi::getActiveDocumentContext()$path)))
+```
+
+#### Read in data
+```{r}
+df <- as.data.frame(read.csv(file = "20170116_FullProcessed.csv", header = T))
+glimpse(df)
+```
+
+#### Plot raw data
+looking for errors, block effects. Not certain how they are classifying technical rep or biological rep we should clarrify this.
+```{r, echo=FALSE}
+df_proc1 <- df %>%
+  dplyr::filter(activity_type != "base", !is.na(life_span)) %>%
+  dplyr::mutate(alive = ifelse(!is.na(activity), 1, 0)) %>%
+  dplyr::group_by(strain, tech_rep, bio_rep, time_d) %>%
+  dplyr::summarise(frac_alive = sum(alive)/n(),
+                   n = n())
+
+# plot survival curves for all strains
+raw_plot_all <- ggplot(df_proc1) +
+  aes(x=time_d, y=frac_alive, color=strain) +
+  geom_line() +
+  labs(x="Day", y="Fraction alive") +
+  theme(legend.position = "right") +
+  theme_grey() +
+  facet_grid(bio_rep ~ tech_rep, labeller = label_both)
+
+# plot survival curves for just N2 and CB4856
+raw_plot_subset <- ggplot(df_proc1 %>% dplyr::filter(grepl("N2", strain) | grepl("CB4856", strain))) +
+  aes(x=time_d, y=frac_alive, color=strain) +
+  geom_line() +
+  labs(x="Day", y="Fraction alive") +
+  theme(legend.position = "right") +
+  theme_grey() + 
+  facet_grid(bio_rep ~ tech_rep, labeller = label_both)
+raw_plot_all
+raw_plot_subset
+```
+
+####fit weibull model to data and extract parameters to be used as traits
+The code will correct for block effects. This is done by fitting a linear model to define the block effect for each trait then using the residuals from those fits as corrected traits.
+```{r, echo=FALSE}
+
+# reshape data for survival object, ignore technical replicate and include just biological reps
+df_km <- df %>%
+  dplyr::distinct(strain, bio_rep, rep, life_span) %>%
+  dplyr::mutate(status = ifelse(is.na(life_span), 0, 1)) %>%
+  dplyr::mutate(bio_rep = factor(bio_rep))
+
+#Asign functions to calculate 90, 50, 10 percent survival times with Weibull model.
+weibull_50 <- function(shape, scale) {
+  qweibull(0.5, shape = shape, scale = scale)
+}
+weibull_10 <- function(shape, scale) {
+  qweibull(0.9, shape = shape, scale = scale)
+}
+weibull_90 <- function(shape, scale) {
+  qweibull(0.1, shape = shape, scale = scale)
+}
+
+# establish lists to populate with for loop
+block_list <- list()
+strain_list <- list()
+
+# nested for loop to extract parameters for each strain in each block
+for(b in 1:length(unique(df_km$bio_rep))){
+  
+  block_df <- df_km %>%
+    dplyr::filter(bio_rep == (unique(df_km$bio_rep)[b]))
+
+  for(s in 1:length(unique(block_df$strain))){
+  
+    strain_df <- block_df %>%
+      dplyr::filter(strain == (unique(block_df$strain)[s]))
+  
+    w_fit = flexsurvreg(Surv(life_span, status) ~ 1, dist = "weibull", data = strain_df)
+  
+    w_90 <- summary(w_fit, fn = weibull_90, t=1)
+  
+    w_50 <- summary(w_fit, fn = weibull_50, t=1)
+  
+    w_10 <- summary(w_fit, fn = weibull_10, t=1)
+  
+    strain_surv <- data.frame(block = unique(block_df$bio_rep),
+                  strain = unique(block_df$strain)[s],
+                  w_shape_est = w_fit[["res"]][1],
+                  w_scale_est = w_fit[["res"]][2],
+                  w_surv90_est = w_90[[1]][2],
+                  w_surv50_est = w_50[[1]][2],
+                  w_surv10_est = w_10[[1]][2])
+    strain_surv <- strain_surv %>%
+      dplyr::rename('w_surv90_est' = est, 'w_surv50_est' = est.1, 'w_surv10_est' = est.2)
+
+    strain_list[[s]] <- strain_surv
+  }
+  
+  strain_df <- bind_rows(strain_list)
+  
+  block_list[[b]] <- strain_df
+  
+}
+
+#combine all data
+h_df <- dplyr::bind_rows(block_list) %>%
+  dplyr::arrange(strain, block)
+
+h_df_sh <- h_df %>%
+  dplyr::rename(phenotype = w_shape_est)%>%
+  dplyr::select(block, strain, phenotype)
+
+shape_ris <- data.frame(strain = h_df_sh$strain, 
+                        phenotype = h_df_sh$phenotype,
+                        weibull_shape_residual =residuals(lm(phenotype ~ block, data = h_df_sh)))
+
+h_df_sc <- h_df %>%
+  dplyr::rename(phenotype = w_scale_est)%>%
+  dplyr::select(block, strain, phenotype)
+
+scale_ris <- data.frame(strain = h_df_sc$strain, 
+                        phenotype = h_df_sc$phenotype,
+                        weibull_scale_residual =residuals(lm(phenotype ~ block, data = h_df_sc)))
+
+h_df_surv50 <- h_df %>%
+  dplyr::rename(phenotype = w_surv50_est)%>%
+  dplyr::select(block, strain, phenotype)
+
+surv50_ris <- data.frame(strain = h_df_surv50$strain, 
+                        phenotype = h_df_surv50$phenotype,
+                        weibull_surv50_residual =residuals(lm(phenotype ~ block, data = h_df_surv50)))
+
+h_df_surv90 <- h_df %>%
+  dplyr::rename(phenotype = w_surv90_est)%>%
+  dplyr::select(block, strain, phenotype)
+
+surv90_ris <- data.frame(strain = h_df_surv90$strain, 
+                         phenotype = h_df_surv90$phenotype,
+                         weibull_surv90_residual =residuals(lm(phenotype ~ block, data = h_df_surv90)))
+
+h_df_surv10 <- h_df %>%
+  dplyr::rename(phenotype = w_surv10_est)%>%
+  dplyr::select(block, strain, phenotype)
+
+surv10_ris <- data.frame(strain = h_df_surv10$strain, 
+                         phenotype = h_df_surv10$phenotype,
+                         weibull_surv10_residual =residuals(lm(phenotype ~ block, data = h_df_surv10)))
+
+h_df_corr <- as.data.frame(data.frame(strain = shape_ris[,1],
+                   shape_par = shape_ris[,3],
+                   scale_par = scale_ris[,3],
+                   surv50_est = surv50_ris[,3],
+                   sruv90_est = surv90_ris[,3],
+                   surv10_est = surv10_ris[,3]))
+
+h_df_corr <- h_df_corr %>%
+  tidyr::gather(trait, phenotype, -strain) %>%
+  as.data.frame()
+
+glimpse(h_df_corr)
+```
+
+#### Calculate heritability for corrected traits
+```{r}
+# define heritability test
+H2.test <- function(data){
+  
+  pheno <- as.data.frame(dplyr::select(data, phenotype))[,1]
+  strain <- as.factor(data$strain)
+  
+  reffMod <- lme4::lmer(pheno ~ 1 + (1|strain))
+  
+  Variances <- as.data.frame(lme4::VarCorr(reffMod, comp = "Variance"))
+  
+  Vg <- Variances$vcov[1]
+  Ve <- Variances$vcov[2]
+  H2 <- Vg/(Vg+Ve)
+  
+  return(H2)
+}
+
+# apply heritability test to all block corrected traits
+h_list <- list()
+
+for(t in 1:length(unique(h_df_corr$trait))){
+  
+  trait_df <- h_df_corr %>%
+    dplyr::filter(trait == (unique(h_df_corr$trait)[t])) %>%
+    dplyr::mutate(H2 = H2.test(.))
+  
+  h_list[[t]] <- trait_df
+}
+
+h_cal_df <- dplyr::bind_rows(h_list) %>%
+  dplyr::arrange(strain)
+
+# plot heritability for each trait
+
+herit_plot <- ggplot(h_cal_df%>%distinct(H2, .keep_all=T)) + 
+  aes(x = trait, y = H2) +
+  ylab("Heritability") +
+  ylim(0, .5) +
+  geom_point() +
+  geom_hline(yintercept = .20, linetype="dashed", color="darkred")
+herit_plot
+
+
+# plot fit to one example
+ggplot(df_proc1 %>% dplyr::filter(strain =="N2")) +
+  aes(x=time_d, y=frac_alive, color=as.factor(bio_rep)) +
+  geom_point() +
+  theme(legend.position = "right") +
+  stat_function(fun=function(x)exp(1)^-((x/13.11627)^3.763897), geom="line", color = "black") +
+  theme_classic() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black")) + 
+  labs(title = "", color = "Assay", x = "Day", y = "Fraction Alive") +
+  theme(legend.position="right")
+
+```
+<br>
+scale_par = weibull fit scale parameter<br>
+shape_par = weibull fit shape parameter<br>
+surv90_est = estimate for time(d) for 90% survival<br>
+surv10_est = estimate for time(d) for 10% survival<br>
+surv50_est = estimate for time(d) for 50% survival<br>

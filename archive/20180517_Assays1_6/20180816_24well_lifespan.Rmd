@@ -1,0 +1,360 @@
+---
+title: "20180816_24well_healthspan"
+author: "Tim C."
+date: "8/16/2018"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+These data are from 24-well plates not worMotels. I believe 30-50 L4 nematodes were added to each well; there are two replicate wells for each strain in a block.<br><br>
+**lifespan** = Calculated by CFY group.<br>
+**healthspan** = Calculated by CFY group<br><br>
+
+```{r, echo=FALSE, warning=FALSE, message=F}
+library(rio)
+library(ggplot2)
+library(dplyr)
+library(survival)
+library(flexsurv)
+library(broom)
+library(minpack.lm)
+library(forcats)
+library(glue)
+library(scales)
+library(boot)
+
+H2.test.boot <- function(data, indicies){
+
+  d <- data[indicies,]
+
+  pheno <- as.data.frame(dplyr::select(d, phenotype))[,1]
+  strain <- as.factor(d$strain)
+
+  reffMod <- lme4::lmer(pheno ~ 1 + (1|strain))
+
+  Variances <- as.data.frame(lme4::VarCorr(reffMod, comp = "Variance"))
+
+  Vg <- Variances$vcov[1]
+  Ve <- Variances$vcov[2]
+  H2 <- Vg/(Vg+Ve)
+
+  # errors <- sqrt(diag(lme4::VarCorr(reffMod, comp = "Variance")$strain))
+
+  return(H2)
+}
+# data is data frame that contains strain and phenotype column
+H2.test <- function(data){
+
+  pheno <- as.data.frame(dplyr::select(data, phenotype))[,1]
+  strain <- as.factor(data$strain)
+
+  reffMod <- lme4::lmer(pheno ~ 1 + (1|strain))
+
+  Variances <- as.data.frame(lme4::VarCorr(reffMod, comp = "Variance"))
+
+  Vg <- Variances$vcov[1]
+  Ve <- Variances$vcov[2]
+  H2 <- Vg/(Vg+Ve)
+
+  # errors <- sqrt(diag(lme4::VarCorr(reffMod, comp = "Variance")$strain))
+
+  return(H2)
+}
+
+# df is data frame that contains strain and phenotype column
+H2.calc <- function(df, boot = T){
+
+
+  if(boot == T){
+    # bootstrapping with 1000 replications
+    results <- boot(data=df, statistic=H2.test.boot, R=10000)
+
+    # get 95% confidence interval
+    ci <- boot.ci(results, type="bca")
+
+    H2_errors <- data.frame(H2 = ci$t0, ci_l = ci$bca[4], ci_r = ci$bca[5])
+
+    return(H2_errors)
+
+  } else {
+
+    H2 <- data.frame(H2 = H2.test(data = df), ci_l = NA, ci_r = NA)
+    return(H2)
+  }
+
+}
+
+
+# remove outliers function *MAKE SURE multiple of IQR is set to where you want it.
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
+  H <- 100 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- NA
+  y[x > (qnt[2] + H)] <- NA
+  y
+}
+```
+
+
+```{r, echo=FALSE, warning=FALSE}
+# read in survival data from 24-well plates
+dat_24 <- as.data.frame(read.csv(file = "/Users/tim/Documents/WorMotel/20180517_Assays1_6/AllDataLongFormat_WildIsolate24wellplateLifespan.csv", header = T)) %>%
+  dplyr::rename(plate_num = Plate.Number,
+                strain = Genotype,
+                well = Well.Number,
+                lifespan = Lifespan.Estimate..Days.,
+                healthspan = Healthspan.Estimate..Days.,
+                activity_type = Activity.Type,
+                time_days = Time.Point..Days.,
+                activity = Activity) %>%
+  dplyr::mutate(activity_type = ifelse(activity_type == -1, "stim", "base")) %>%
+  tidyr::spread(activity_type, activity)
+  
+dat_24_proc <- dat_24 %>%
+  dplyr::distinct(plate_num, strain, well, .keep_all = T) %>%
+  dplyr::select(-time_days, -base, -stim) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(residual_ls = residuals(lm(lifespan ~ plate_num)),
+                residual_hs = residuals(lm(healthspan ~ plate_num))) %>%
+  tidyr::gather(trait, phenotype, -plate_num, -strain, -well)
+  
+# plot traits
+traits_24_facet <- ggplot(dat_24_proc %>% dplyr::filter(trait != "residual_hs", trait != "residual_ls")) +
+  geom_jitter(aes(x=strain, y = phenotype, color = as.factor(plate_num)), width = 0.25, size = 2) +
+  geom_boxplot(aes(x=strain, y = phenotype), outlier.shape = NA, alpha = 0.25) +
+  facet_wrap(~trait, scales = "free") +
+  theme_light() +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+        strip.text.x = element_text(size = 12, colour = "black")) + 
+  labs(title = "24_well traits", color = "block", x = "", y = "Value")
+traits_24_facet
+
+#ggsave('figure/24well_phenotypes.pdf', width = 12, height = 8)
+#ggsave('figure/24well_phenotypes.png', width = 12, height = 8)
+
+# calculate heritability for all traits
+dat_24_proc_h2 <- dat_24_proc %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x)%>%
+  dplyr::ungroup()
+
+# plot heritabilities
+dat_24_proc_h2_plot <- ggplot(dat_24_proc_h2 %>% dplyr::filter(trait != "residual_hs", trait != "residual_ls")) +
+  geom_point(aes(x = trait, y = H2), size = 5) +
+  ylim(0,1) +
+  theme_light() +
+  theme(title = element_text(size = 16, color = "black", face = "bold"),
+        axis.title = element_text(size = 16, color = "black", face = "bold"),
+        axis.text = element_text(size = 16, color = "black"),
+        legend.text = element_text(size = 16, color = "black"), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  labs(title = "Heritability for 24_well traits", color = "", x = "", y = "Heritability")
+dat_24_proc_h2_plot
+
+#ggsave('figure/24well_phenotypes.pdf', width = 12, height = 8)
+#ggsave('figure/24well_phenotypes.png', width = 12, height = 8)
+
+# plot histogram for base and stim activity
+base_activity <- ggplot(dat_24) +
+  aes(x = base) +
+  ylim(0,250) +
+  geom_histogram(bins = 100)
+
+
+stim_activity <- ggplot(dat_24) +
+  aes(x = stim) +
+  ylim(0,250) +
+  geom_histogram(bins = 100) 
+
+
+# need to trim outliers before calculating Ts, trim outliers for each strain seprately
+
+dat_24_ts <- dat_24 %>%
+  dplyr::group_by(strain) %>%
+  dplyr::mutate(base_outliers = remove_outliers(base),
+                stim_outliers = remove_outliers(stim)) %>% 
+  dplyr::group_by(plate_num, strain, well) %>%
+  dplyr::mutate(total_b =  sum(base_outliers, na.rm = T),
+                total_s = sum(stim_outliers, na.rm = T),
+                b_outlier = ifelse(is.na(base_outliers), TRUE, FALSE),
+                s_outlier = ifelse(is.na(stim_outliers), TRUE, FALSE))
+                
+# replot histogram for base and stim activity colored by outliers (using 100* IQR for filtering)
+base_activity <- ggplot(dat_24_ts) +
+  aes(x = base, fill = b_outlier) +
+  ylim(0,250) +
+  geom_histogram(bins = 100)
+
+
+stim_activity <- ggplot(dat_24_ts) +
+  aes(x = stim, fill = s_outlier) +
+  ylim(0,250) +
+  geom_histogram(bins = 100) 
+
+  
+# continuing to count Ts for outlier filtered data * Make sure IQR multiple is set to where you want it in remove outliers function.
+dat_24_ts2 <- dat_24_ts %>%
+  dplyr::mutate(base_outliers = ifelse(is.na(base_outliers), 0, base_outliers),
+                stim_outliers = ifelse(is.na(stim_outliers), 0, stim_outliers)) %>%
+  dplyr::group_by(plate_num, strain, well) %>%
+  dplyr::mutate(cum_b = cumsum(base_outliers)) %>%
+  dplyr::mutate(cum_s = cumsum(stim_outliers)) %>%
+  dplyr::mutate(frac_total_b = 1-(cum_b / total_b)) %>%
+  dplyr::mutate(frac_total_s = 1-(cum_s / total_s)) %>%
+  dplyr::group_by(plate_num, time_days, strain) %>%
+  dplyr::mutate(mean_frac_total_b = mean(frac_total_b),
+                mean_frac_total_s = mean(frac_total_s)) %>%
+  dplyr::ungroup()
+
+# plot frac_total for each strain
+ggplot(dat_24_ts2) +
+  aes(x = time_days, y = mean_frac_total_b, color = strain) +
+  geom_line() +
+  facet_wrap(~plate_num) +
+  xlim(0,18)
+
+ggplot(dat_24_ts2) +
+  aes(x = time_days, y = mean_frac_total_s, color = strain) +
+  geom_line() +
+  facet_wrap(~plate_num) +
+  xlim(0,18)
+
+# Add time to X fraction remaining columns
+dat_24_ts3 <- dat_24_ts2 %>%
+  dplyr::group_by(plate_num, strain, well) %>%
+  dplyr::mutate(t95b = ifelse(frac_total_b >= 0.950, lag(time_days), 0),
+                t90b = ifelse(frac_total_b >= 0.90, lag(time_days), 0),
+                t85b = ifelse(frac_total_b >= 0.850, lag(time_days), 0),
+                t80b = ifelse(frac_total_b >= 0.800, lag(time_days), 0),
+                t75b = ifelse(frac_total_b >= 0.750, lag(time_days), 0),
+                t70b = ifelse(frac_total_b >= 0.700, lag(time_days), 0),
+                t65b = ifelse(frac_total_b >= 0.650, lag(time_days), 0),
+                t60b = ifelse(frac_total_b >= 0.600, lag(time_days), 0),
+                t55b = ifelse(frac_total_b >= 0.550, lag(time_days), 0),
+                t50b = ifelse(frac_total_b >= 0.500, lag(time_days), 0),
+                t45b = ifelse(frac_total_b >= 0.450, lag(time_days), 0),
+                t40b = ifelse(frac_total_b >= 0.400, lag(time_days), 0),
+                t35b = ifelse(frac_total_b >= 0.350, lag(time_days), 0),
+                t30b = ifelse(frac_total_b >= 0.300, lag(time_days), 0),
+                t25b = ifelse(frac_total_b >= 0.250, lag(time_days), 0),
+                t20b = ifelse(frac_total_b >= 0.200, lag(time_days), 0),
+                t15b = ifelse(frac_total_b >= 0.150, lag(time_days), 0),
+                t10b = ifelse(frac_total_b >= 0.100, lag(time_days), 0),
+                t075b = ifelse(frac_total_b >= 0.075, lag(time_days), 0),
+                t05b = ifelse(frac_total_b >= 0.05, lag(time_days), 0),
+                t025b = ifelse(frac_total_b >= 0.025, lag(time_days), 0),
+                t0b = ifelse(frac_total_b >= 0.00, lag(time_days), 0)) %>%
+  dplyr::mutate(t95b = max(t95b, na.rm = T),
+                t90b = max(t90b, na.rm = T),
+                t85b = max(t85b, na.rm = T),
+                t80b = max(t80b, na.rm = T),
+                t75b = max(t75b, na.rm = T),
+                t70b = max(t70b, na.rm = T),
+                t65b = max(t65b, na.rm = T),
+                t60b = max(t60b, na.rm = T),
+                t55b = max(t55b, na.rm = T),
+                t50b = max(t50b, na.rm = T),
+                t45b = max(t45b, na.rm = T),
+                t40b = max(t40b, na.rm = T),
+                t35b = max(t35b, na.rm = T),
+                t30b = max(t30b, na.rm = T),
+                t25b = max(t25b, na.rm = T),
+                t20b = max(t20b, na.rm = T),
+                t15b = max(t15b, na.rm = T),
+                t10b = max(t10b, na.rm = T),
+                t05b = max(t05b, na.rm = T),
+                t075b = max(t075b, na.rm = T),
+                t025b = max(t025b, na.rm = T),
+                t0b = max(t0b, na.rm = T)) %>%
+  dplyr::mutate(t95s = ifelse(frac_total_s >= 0.950, lag(time_days), 0),
+                t90s = ifelse(frac_total_s >= 0.90, lag(time_days), 0),
+                t85s = ifelse(frac_total_s >= 0.850, lag(time_days), 0),
+                t80s = ifelse(frac_total_s >= 0.800, lag(time_days), 0),
+                t75s = ifelse(frac_total_s >= 0.750, lag(time_days), 0),
+                t70s = ifelse(frac_total_s >= 0.700, lag(time_days), 0),
+                t65s = ifelse(frac_total_s >= 0.650, lag(time_days), 0),
+                t60s = ifelse(frac_total_s >= 0.600, lag(time_days), 0),
+                t55s = ifelse(frac_total_s >= 0.550, lag(time_days), 0),
+                t50s = ifelse(frac_total_s >= 0.500, lag(time_days), 0),
+                t45s = ifelse(frac_total_s >= 0.450, lag(time_days), 0),
+                t40s = ifelse(frac_total_s >= 0.400, lag(time_days), 0),
+                t35s = ifelse(frac_total_s >= 0.350, lag(time_days), 0),
+                t30s = ifelse(frac_total_s >= 0.300, lag(time_days), 0),
+                t25s = ifelse(frac_total_s >= 0.250, lag(time_days), 0),
+                t20s = ifelse(frac_total_s >= 0.200, lag(time_days), 0),
+                t15s = ifelse(frac_total_s >= 0.150, lag(time_days), 0),
+                t10s = ifelse(frac_total_s >= 0.100, lag(time_days), 0),
+                t075s = ifelse(frac_total_s >= 0.075, lag(time_days), 0),
+                t05s = ifelse(frac_total_s >= 0.05, lag(time_days), 0),
+                t025s = ifelse(frac_total_s >= 0.025, lag(time_days), 0),
+                t0s = ifelse(frac_total_s >= 0.00, lag(time_days), 0)) %>%
+  dplyr::mutate(t95s = max(t95s, na.rm = T),
+                t90s = max(t90s, na.rm = T),
+                t85s = max(t85s, na.rm = T),
+                t80s = max(t80s, na.rm = T),
+                t75s = max(t75s, na.rm = T),
+                t70s = max(t70s, na.rm = T),
+                t65s = max(t65s, na.rm = T),
+                t60s = max(t60s, na.rm = T),
+                t55s = max(t55s, na.rm = T),
+                t50s = max(t50s, na.rm = T),
+                t45s = max(t45s, na.rm = T),
+                t40s = max(t40s, na.rm = T),
+                t35s = max(t35s, na.rm = T),
+                t30s = max(t30s, na.rm = T),
+                t25s = max(t25s, na.rm = T),
+                t20s = max(t20s, na.rm = T),
+                t15s = max(t15s, na.rm = T),
+                t10s = max(t10s, na.rm = T),
+                t05s = max(t05s, na.rm = T),
+                t075s = max(t075s, na.rm = T),
+                t025s = max(t025s, na.rm = T),
+                t0s = max(t0s, na.rm = T))
+                
+dat_24_ts4 <- dat_24_ts3 %>%
+  dplyr::distinct(plate_num, strain, well, .keep_all = T) %>%
+  dplyr::select(plate_num, strain, well, t95b:t0s) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(plate_num, strain) %>%
+  dplyr::summarise_at(vars(t95b:t0s), funs(mean)) %>%
+  tidyr::gather(trait, phenotype, -plate_num, -strain)
+  
+
+# calculate heritability for all traits
+dat_24_h2 <- dat_24_ts4 %>%
+  dplyr::group_by(trait) %>%
+  dplyr::do(broom::tidy(H2.test(.))) %>%
+  dplyr::rename(H2 = x)%>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(rest = stringr::str_split_fixed(trait, "t", 2)[,2]) %>%
+  dplyr::mutate(time_at_fraction_activity_remaining = stringr::str_split_fixed(rest, "[a-z]", 2)[,1]) %>% # take any letter in rest and split into 2 things. then take the first thing and assign that to number
+  dplyr::mutate(activity_type = stringr::str_split_fixed(rest, "[0-9]*",2)[,2]) %>%
+  dplyr::select(-rest, -trait) %>%
+  dplyr::mutate(time_at_fraction_activity_remaining = as.double(paste0(".",time_at_fraction_activity_remaining)))
+
+# plot heritabilities
+dat_24_h2_plot <- ggplot(dat_24_h2) +
+  geom_point(aes(x = time_at_fraction_activity_remaining, y = H2)) +
+  ylim(0,1) +
+  xlim(0,1) +
+  theme_light() +
+  geom_smooth(aes(x = time_at_fraction_activity_remaining, y = H2), method = loess) +
+  facet_wrap(~activity_type) +
+  theme(title = element_text(size = 12, color = "black", face = "bold"),
+        axis.title = element_text(size = 12, color = "black", face = "bold"),
+        axis.text = element_text(size = 12, color = "black"),
+        legend.text = element_text(size = 12, color = "black")) + 
+  labs(title = "Heritability for 24_well traits", color = "", x = "Fraction of total activity remaining", y = "Heritability")
+dat_24_h2_plot
+```
+<br>
+Heritability is calculated using block means. Each strain has a mean time at which X % of total activity is remaining.
