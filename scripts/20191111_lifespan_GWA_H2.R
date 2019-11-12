@@ -188,17 +188,17 @@ initial_filtering_t97_t89_density <- ggplot(ls_df_7) +
         strip.text.x = element_text(size = 10, face = "plain", color = "black"),
         strip.text.y = element_text(size = 10, face = "plain", color = "black"),
         plot.title = element_text(size = 12, face = "bold", color = "black"))
-  # Getting density values from plot
-  initial_filtering_density = ggplot_build(initial_filtering_t97_t89_density)$data[[1]]
+# Getting density values from plot
+initial_filtering_density = ggplot_build(initial_filtering_t97_t89_density)$data[[1]]
   
   
 # Plot density distribution for T97 - T89 for wells were strains were not loaed into wells
-  ls_df_no_worms_loaded <- ls_df_2 %>%
+ls_df_no_worms_loaded <- ls_df_2 %>%
     dplyr::filter(is.na(strain)) %>%
     dplyr::mutate(t97_t89_diff = T97 - T89) %>%
     dplyr::filter(t97_t89_diff != "NaN")
   
-  no_worm_t97_t89_density <- ggplot(ls_df_no_worms_loaded) +
+no_worm_t97_t89_density <- ggplot(ls_df_no_worms_loaded) +
     aes(t97_t89_diff) + 
     stat_ecdf(geom = "step", color = "red") +
     geom_vline(xintercept = 2.5, lty = 2, color = "red") +
@@ -215,7 +215,7 @@ initial_filtering_t97_t89_density <- ggplot(ls_df_7) +
            plot.title = element_text(size = 12, face = "bold", color = "black"))
 
 # Getting density values from plot
- no_worm_density = ggplot_build(no_worm_t97_t89_density)$data[[1]]
+no_worm_density = ggplot_build(no_worm_t97_t89_density)$data[[1]]
  
 # put above together on one plot
 bind_plot <- cowplot::plot_grid(no_worm_t97_t89_density, initial_filtering_t97_t89_density, ncol = 2)
@@ -271,10 +271,56 @@ ls_df_75 <- ls_df_7 %>%
                                                 #  ls_df_75
 ls_df_90_box <- 
 
-# generate trait files for mappings based on sliding censoring threshold
+# generate trait files for mappings based on sliding censoring threshold. No regression or use of control N2 strains
+ls_df_90_tf <- ls_df_90 %>%
+  dplyr::group_by(strain) %>%
+  dplyr::mutate(t97_mean = mean(T97),
+                t89_mean = mean(T89),
+                t97_t89_diff_mean = mean(t97_t89_diff),
+                n = n()) %>%
+  dplyr::select(strain, t97_mean, t89_mean, t97_t89_diff_mean) %>%
+  dplyr::ungroup() %>%
+  dplyr::distinct(strain, .keep_all = TRUE) %>%
+  dplyr::filter(!(strain %in% c("N2_1", "N2_2", "N2_3", "N2_4", "N2_5")))
 
+ls_df_85_tf <- ls_df_85 %>%
+  dplyr::group_by(strain) %>%
+  dplyr::mutate(t97_mean = mean(T97),
+                t89_mean = mean(T89),
+                t97_t89_diff_mean = mean(t97_t89_diff),
+                n = n()) %>%
+  dplyr::select(strain, t97_mean, t89_mean, t97_t89_diff_mean) %>%
+  dplyr::ungroup() %>%
+  dplyr::distinct(strain, .keep_all = TRUE) %>%
+  dplyr::filter(!(strain %in% c("N2_1", "N2_2", "N2_3", "N2_4", "N2_5")))
 
+ls_df_80_tf <- ls_df_80 %>%
+  dplyr::group_by(strain) %>%
+  dplyr::mutate(t97_mean = mean(T97),
+                t89_mean = mean(T89),
+                t97_t89_diff_mean = mean(t97_t89_diff),
+                n = n()) %>%
+  dplyr::select(strain, t97_mean, t89_mean, t97_t89_diff_mean) %>%
+  dplyr::ungroup() %>%
+  dplyr::distinct(strain, .keep_all = TRUE) %>%
+  dplyr::filter(!(strain %in% c("N2_1", "N2_2", "N2_3", "N2_4", "N2_5")))
 
+ls_df_75_tf <- ls_df_75 %>%
+  dplyr::group_by(strain) %>%
+  dplyr::mutate(t97_mean = mean(T97),
+                t89_mean = mean(T89),
+                t97_t89_diff_mean = mean(t97_t89_diff),
+                n = n()) %>%
+  dplyr::select(strain, t97_mean, t89_mean, t97_t89_diff_mean) %>%
+  dplyr::ungroup() %>%
+  dplyr::distinct(strain, .keep_all = TRUE) %>%
+  dplyr::filter(!(strain %in% c("N2_1", "N2_2", "N2_3", "N2_4", "N2_5")))
+
+# write .tsv trait files to data directory
+rio::export(ls_df_90_tf, 'data/traitfile_ls_GWA_90.tsv', format = "tsv")
+rio::export(ls_df_85_tf, 'data/traitfile_ls_GWA_85.tsv', format = "tsv")
+rio::export(ls_df_80_tf, 'data/traitfile_ls_GWA_80.tsv', format = "tsv")
+rio::export(ls_df_75_tf, 'data/traitfile_ls_GWA_75.tsv', format = "tsv")
 
 ###############
 ### tsting ###
