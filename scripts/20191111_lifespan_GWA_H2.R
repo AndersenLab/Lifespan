@@ -250,7 +250,7 @@ ggsave(noise_prob_p, filename = "plots/20191111_GWA_noise_prob_80_threshold.png"
 # apply 90% threshold censoring (T97-T89 > 3.1) on 333 non-filtered wells with worms
 ls_df_90 <- ls_df_7 %>%
   dplyr::mutate(uniq_id = as.character(glue::glue('{plateName}_{wellNum}'))) %>%
-  dplyr::filter(t97_t89_diff > 3.1)
+  dplyr::filter(t97_t89_diff > 3.1) 
  
 ls_df_85 <- ls_df_7 %>%
   dplyr::mutate(uniq_id = as.character(glue::glue('{plateName}_{wellNum}'))) %>%
@@ -263,14 +263,7 @@ ls_df_80 <- ls_df_7 %>%
 ls_df_75 <- ls_df_7 %>%
   dplyr::mutate(uniq_id = as.character(glue::glue('{plateName}_{wellNum}'))) %>%
   dplyr::filter(t97_t89_diff > 1.33)
-
-# plot box plots for various censoring strategies. ls_df_90 is most conservation
-                                                #  ls_df_2 censor filter next
-                                                #  ls_df_85
-                                                #  ls_df_80
-                                                #  ls_df_75
-ls_df_90_box <- 
-
+  
 # generate trait files for mappings based on sliding censoring threshold. No regression or use of control N2 strains
 ls_df_CFY_tf  <- ls_df_2 %>%
   dplyr::filter(censor == FALSE) %>%
@@ -329,7 +322,138 @@ ls_df_75_tf <- ls_df_75 %>%
   dplyr::distinct(strain, .keep_all = TRUE) %>%
   dplyr::filter(!(strain %in% c("N2_1", "N2_2", "N2_3", "N2_4", "N2_5")))
 
-# write .tsv trait files to data directory
+# bar plots for various censoring strategies.
+#  ls_df_90 is most conservation (56 strains)
+#  ls_df_CFY (data for 61 strains) censor filter next
+#  ls_df_85 (70 strains)
+#  ls_df_80 (76 strains)
+#  ls_df_75 (82 strains)
+
+ls_df_CFY <- ls_df_2 %>%
+  dplyr::filter(censor == FALSE) %>%
+  dplyr::mutate(t97_t89_diff = T97 - T89) %>%
+  dplyr::group_by(strain) %>%
+  dplyr::mutate(t97_mean = mean(T97),
+                t89_mean = mean(T89),
+                t97_t89_diff_mean = mean(t97_t89_diff),
+                n = n(),
+                t97_sd = sd(T97),
+                t89_sd = sd(T89),
+                t97_t89_diff_sd = sd(t97_t89_diff),
+                t97_sterr = t97_sd/sqrt(n),
+                t89_sterr = t89_sd/sqrt(n),
+                t97_t89_diff_sterr = t97_t89_diff_sd/sqrt(n)) %>%
+  dplyr::ungroup() %>%
+  dplyr::filter(!(strain %in% c("N2_1", "N2_2", "N2_3", "N2_4", "N2_5")))
+
+# Healthspan and lifespan barcharts
+mean_ls_ranks_CFY <- ls_df_CFY %>%
+  dplyr::distinct(strain, .keep_all = T) %>%
+  dplyr::arrange(t97_mean) %>%
+  dplyr::mutate(ls_rank = seq(1:61)) 
+
+mean_hs_ranks_CFY <- ls_df_CFY %>%
+  dplyr::distinct(strain, .keep_all = T) %>%
+  dplyr::arrange(t89_mean) %>%
+  dplyr::mutate(hs_rank = seq(1:61))
+
+mean_ls_order_CFY <- mean_ls_ranks_CFY$strain
+
+mean_hs_order_CFY <- mean_hs_ranks_CFY$strain
+
+# plot mean trait values for all strains
+mean_ls_CFY_bar <- ggplot(mean_ls_ranks_CFY) +
+  aes(x=factor(strain, levels = mean_ls_order_CFY), y=t97_mean, fill=as.factor(n)) +
+  #scale_fill_manual(values = strain.colours) +
+  geom_col(width = 1, color = "black", size = 0.2) +
+  geom_linerange(aes(ymax = t97_mean + t97_sterr, ymin = t97_mean - t97_sterr), size = 0.2) +
+  labs(x="", y="lifespan (d)", fill = "reps", title = "CFY censored traits") +
+  theme_bw() +
+  ylim(0, 17.5) +
+  theme(legend.position = "right",
+        axis.text = element_text(colour = "black"),
+        axis.text.x = element_text(angle = 90, vjust = 0.5),
+        plot.margin = unit(c(0.2,0.2,0,0.2), "cm"))
+
+mean_ls_CFY_bar_full <- ggplot(mean_ls_ranks_CFY) +
+  aes(x=factor(strain, levels = mean_ls_order_CFY), y=t97_mean, fill=as.factor(n)) +
+  #scale_fill_manual(values = strain.colours) +
+  geom_col(width = 1, color = "black", size = 0.2) +
+  geom_linerange(aes(ymax = t97_mean + t97_sterr, ymin = t97_mean - t97_sterr), size = 0.2) +
+  labs(x="", y="lifespan (d)", fill = "reps", title = "CFY censored traits (61 strains)") +
+  theme_bw() +
+  ylim(0, 17.5) +
+  theme(legend.position = "none",
+        axis.text = element_text(colour = "black"),
+        axis.text.x = element_blank(),
+        plot.margin = unit(c(0.2,0.2,0,0.2), "cm"))
+
+mean_hs_CFY_bar <- ggplot(mean_ls_ranks_CFY) +
+  aes(x=factor(strain, levels = mean_ls_order_CFY), y=t89_mean, fill=as.factor(n)) +
+  #scale_fill_manual(values = strain.colours) +
+  geom_col(width = 1, color = "black", size = 0.2) +
+  geom_linerange(aes(ymax = t89_mean + t89_sterr, ymin = t89_mean - t89_sterr), size = 0.2) +
+  labs(x="", y="healthspan (d)", fill = "reps", title = "CFY censored traits") +
+  theme_bw() +
+  ylim(0, 12.5) +
+  theme(legend.position = "right",
+        axis.text = element_text(colour = "black"),
+        axis.text.x = element_text(angle = 90, vjust = 0.5),
+        plot.margin = unit(c(0.2,0.2,0,0.2), "cm"))
+
+mean_hs_CFY_bar_full <- ggplot(mean_ls_ranks_CFY) +
+  aes(x=factor(strain, levels = mean_ls_order_CFY), y=t89_mean, fill=as.factor(n)) +
+  #scale_fill_manual(values = strain.colours) +
+  geom_col(width = 1, color = "black", size = 0.2) +
+  geom_linerange(aes(ymax = t89_mean + t89_sterr, ymin = t89_mean - t89_sterr), size = 0.2) +
+  labs(x="", y="healthspan (d)", fill = "reps", title = "") +
+  theme_bw() +
+  ylim(0, 12.5) +
+  theme(legend.position = "none",
+        axis.text = element_text(colour = "black"),
+        axis.text.x = element_blank(),
+        plot.margin = unit(c(0.2,0.2,0,0.2), "cm"))
+
+mean_hs_CFY_bar_full_legend <- cowplot::get_legend(mean_hs_CFY_bar)
+
+mean_t97t89diff_CFY_bar <- ggplot(mean_ls_ranks_CFY) +
+  aes(x=factor(strain, levels = mean_ls_order_CFY), y=t97_t89_diff_mean, fill=as.factor(n)) +
+  #scale_fill_manual(values = strain.colours) +
+  geom_col(width = 1, color = "black", size = 0.2) +
+  geom_linerange(aes(ymax = t97_t89_diff_mean + t97_t89_diff_sterr, ymin = t97_t89_diff_mean - t97_t89_diff_sterr), size = 0.2) +
+  labs(x="", y="T97 - T89 (d)", fill = "reps", title = "CFY censored traits") +
+  theme_bw() +
+  ylim(0, 8) +
+  theme(legend.position = "right",
+        axis.text = element_text(colour = "black"),
+        axis.text.x = element_text(angle = 90, vjust = 0.5),
+        plot.margin = unit(c(0.2,0.2,0,0.2), "cm"))
+
+mean_t97t89diff_CFY_bar_full <- ggplot(mean_ls_ranks_CFY) +
+  aes(x=factor(strain, levels = mean_ls_order_CFY), y=t97_t89_diff_mean, fill=as.factor(n)) +
+  #scale_fill_manual(values = strain.colours) +
+  geom_col(width = 1, color = "black", size = 0.2) +
+  geom_linerange(aes(ymax = t97_t89_diff_mean + t97_t89_diff_sterr, ymin = t97_t89_diff_mean - t97_t89_diff_sterr), size = 0.2) +
+  labs(x="", y="T97 - T89 (d)", fill = "reps", title = "") +
+  theme_bw() +
+  ylim(0, 8) +
+  theme(legend.position = "none",
+        axis.text = element_text(colour = "black"),
+        axis.text.x = element_text(angle = 90, vjust = 0.5),
+        plot.margin = unit(c(0.2,0.2,0,0.2), "cm"))
+
+
+ggsave(mean_ls_CFY_bar, filename = "plots/20191111_GWA_T97_bar_CFY.png", width = 6.84, height = 2.56, dpi = 300) 
+ggsave(mean_hs_CFY_bar, filename = "plots/20191111_GWA_T89_bar_CFY.png", width = 6.84, height = 2.56, dpi = 300) 
+ggsave(mean_t97t89diff_CFY_bar, filename = "plots/20191111_GWA_T97T89diff_bar_CFY.png", width = 6.84, height = 2.56, dpi = 300) 
+
+full_bars <- cowplot::plot_grid(mean_ls_CFY_bar_full, mean_hs_CFY_bar_full, mean_t97t89diff_CFY_bar_full, ncol = 1, align = "bl", rel_heights = c(1,1,1.3))
+full_bars_legend <- cowplot::plot_grid(full_bars, mean_hs_CFY_bar_full_legend, ncol = 2, rel_widths = c(1,.075))
+ggsave(full_bars_legend, filename = "plots/20191111_GWA_full_bar_CFY.png", width = 6.84, height = 5.12, dpi = 300) 
+
+#################################################
+#### write .tsv trait files to data directory ###
+#################################################
 rio::export(ls_df_CFY_tf, 'data/traitfile_ls_GWA_CFY.tsv', format = "tsv")
 rio::export(ls_df_90_tf, 'data/traitfile_ls_GWA_90.tsv', format = "tsv")
 rio::export(ls_df_85_tf, 'data/traitfile_ls_GWA_85.tsv', format = "tsv")
