@@ -1,0 +1,1 @@
+~/nextflow run main.nf --traitfile=/projects/b1059/projects/Clay/20191112_lifespan/traitfile_ls_GWA_80.tsv --vcf=bin/WI.20180527.impute.vcf.gz --p3d=TRUE --sthresh=BF --out=11122019_lifespan 

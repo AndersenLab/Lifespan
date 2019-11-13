@@ -1,0 +1,13 @@
+null
+
+    Pipeline execution summary
+    ---------------------------
+    Completed at: 2019-11-12T15:27:41.745-06:00
+    Duration    : 13m 46s
+    Success     : true
+    workDir     : /projects/b1042/AndersenLab/work
+    exit status : 0
+    Error report: -
+    Git info: null - null [null]
+
+    
