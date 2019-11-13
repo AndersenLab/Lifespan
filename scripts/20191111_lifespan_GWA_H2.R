@@ -177,7 +177,7 @@ ls_df_7 <- ls_df_6 %>%
 initial_filtering_t97_t89_density <- ggplot(ls_df_7) +
   aes(t97_t89_diff) + 
   stat_ecdf(geom = "step") +
-  geom_vline(xintercept = 2.5, lty = 2, color = "red") +
+  geom_vline(xintercept = 2, lty = 2, color = "red") +
   theme_bw() +
   xlim(0,30) +
   labs(y = "Cumulative Density", x = "T97 - T89", title = "333 non-filtered wells with worms") +
@@ -190,37 +190,37 @@ initial_filtering_t97_t89_density <- ggplot(ls_df_7) +
         plot.title = element_text(size = 12, face = "bold", color = "black"))
 # Getting density values from plot
 initial_filtering_density = ggplot_build(initial_filtering_t97_t89_density)$data[[1]]
-  
-  
+
+
 # Plot density distribution for T97 - T89 for wells were strains were not loaed into wells
 ls_df_no_worms_loaded <- ls_df_2 %>%
-    dplyr::filter(is.na(strain)) %>%
-    dplyr::mutate(t97_t89_diff = T97 - T89) %>%
-    dplyr::filter(t97_t89_diff != "NaN")
-  
+  dplyr::filter(is.na(strain)) %>%
+  dplyr::mutate(t97_t89_diff = T97 - T89) %>%
+  dplyr::filter(t97_t89_diff != "NaN")
+
 no_worm_t97_t89_density <- ggplot(ls_df_no_worms_loaded) +
-    aes(t97_t89_diff) + 
-    stat_ecdf(geom = "step", color = "red") +
-    geom_vline(xintercept = 2.5, lty = 2, color = "red") +
-    #geom_density() +
-    theme_bw() +
-    xlim(0,30) +
-    labs(y = "Cumulative Density", x = "T97 - T89", title = "87 wells with no worms added") +
-    theme(axis.text.x = element_text(size = 10, face = "plain", color = "black"),
-           axis.text.y = element_text(size = 10, face = "plain", color = "black"),
-           axis.title.x = element_text(size = 10, face = "bold", color = "black"),
-           axis.title.y = element_text(size = 10, face = "bold", color = "black"),
-           strip.text.x = element_text(size = 10, face = "plain", color = "black"),
-           strip.text.y = element_text(size = 10, face = "plain", color = "black"),
-           plot.title = element_text(size = 12, face = "bold", color = "black"))
+  aes(t97_t89_diff) + 
+  stat_ecdf(geom = "step", color = "red") +
+  geom_vline(xintercept = 2, lty = 2, color = "red") +
+  #geom_density() +
+  theme_bw() +
+  xlim(0,30) +
+  labs(y = "Cumulative Density", x = "T97 - T89", title = "87 wells with no worms added") +
+  theme(axis.text.x = element_text(size = 10, face = "plain", color = "black"),
+        axis.text.y = element_text(size = 10, face = "plain", color = "black"),
+        axis.title.x = element_text(size = 10, face = "bold", color = "black"),
+        axis.title.y = element_text(size = 10, face = "bold", color = "black"),
+        strip.text.x = element_text(size = 10, face = "plain", color = "black"),
+        strip.text.y = element_text(size = 10, face = "plain", color = "black"),
+        plot.title = element_text(size = 12, face = "bold", color = "black"))
 
 # Getting density values from plot
 no_worm_density = ggplot_build(no_worm_t97_t89_density)$data[[1]]
- 
+
 # put above together on one plot
 bind_plot <- cowplot::plot_grid(no_worm_t97_t89_density, initial_filtering_t97_t89_density, ncol = 2)
- 
-ggsave(bind_plot, filename = "plots/20191111_GWA_too_few_worms_threshold.png", width = 6.84, height = 2.56, dpi = 300) 
+
+ggsave(bind_plot, filename = "plots/20191111_GWA_too_few_worms_80_threshold.png", width = 6.84, height = 2.56, dpi = 300) 
 
 # noise probabilty table
 noise_df <- no_worm_density %>%
@@ -234,7 +234,7 @@ noise_df <- no_worm_density %>%
 noise_prob_p <- ggplot(noise_df) +
   aes(x = `T97 - T89 (d)`, y = `noise probability`) +
   geom_line() +
-  geom_vline(xintercept = 2.5, lty = 2, color = "red") +
+  geom_vline(xintercept = 2, lty = 2, color = "red") +
   xlim(0,30) +
   theme_bw() +
   theme(axis.text.x = element_text(size = 10, face = "plain", color = "black"),
@@ -245,7 +245,7 @@ noise_prob_p <- ggplot(noise_df) +
         strip.text.y = element_text(size = 10, face = "plain", color = "black"),
         plot.title = element_text(size = 12, face = "bold", color = "black"))
 
-ggsave(noise_prob_p, filename = "plots/20191111_GWA_noise_prob.png", width = 3.42, height = 2.56, dpi = 300)
+ggsave(noise_prob_p, filename = "plots/20191111_GWA_noise_prob_80_threshold.png", width = 3.42, height = 2.56, dpi = 300)
 
 # apply 90% threshold censoring (T97-T89 > 3.1) on 333 non-filtered wells with worms
 ls_df_90 <- ls_df_7 %>%
