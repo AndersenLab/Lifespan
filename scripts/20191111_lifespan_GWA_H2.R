@@ -459,6 +459,7 @@ rio::export(ls_df_90_tf, 'data/traitfile_ls_GWA_90.tsv', format = "tsv")
 rio::export(ls_df_85_tf, 'data/traitfile_ls_GWA_85.tsv', format = "tsv")
 rio::export(ls_df_80_tf, 'data/traitfile_ls_GWA_80.tsv', format = "tsv")
 rio::export(ls_df_75_tf, 'data/traitfile_ls_GWA_75.tsv', format = "tsv")
+rio::export(ls_df_CFY_tf %>% dplyr::select(strain), 'data/strain_list_CFY.tsv', format = "tsv")
 
 # calculate heritability for each censoring level
 
