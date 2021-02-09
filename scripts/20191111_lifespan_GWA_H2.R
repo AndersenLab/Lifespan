@@ -188,6 +188,24 @@ initial_filtering_t97_t89_density <- ggplot(ls_df_7) +
         strip.text.x = element_text(size = 10, face = "plain", color = "black"),
         strip.text.y = element_text(size = 10, face = "plain", color = "black"),
         plot.title = element_text(size = 12, face = "bold", color = "black"))
+
+# Plot density for all by censoring T97 - T89
+t97_t89_hist <- ggplot(ls_df_7) +
+  aes(t97_t89_diff, fill = censor) + 
+  geom_density(alpha = 0.33, bw = 0.25, size =0.5) +
+  theme_bw() +
+  xlim(0,30) +
+  labs(y = "Cumulative Density", x = "T97 - T89", title = "333 non-filtered wells with worms") +
+  theme(axis.text.x = element_text(size = 10, face = "plain", color = "black"),
+        axis.text.y = element_text(size = 10, face = "plain", color = "black"),
+        axis.title.x = element_text(size = 10, face = "bold", color = "black"),
+        axis.title.y = element_text(size = 10, face = "bold", color = "black"),
+        strip.text.x = element_text(size = 10, face = "plain", color = "black"),
+        strip.text.y = element_text(size = 10, face = "plain", color = "black"),
+        plot.title = element_text(size = 12, face = "bold", color = "black"))
+ggsave("plots/20191119_density_T97T89_threshold.png", width = 7, height = 5, dpi = 300)
+
+
 # Getting density values from plot
 initial_filtering_density = ggplot_build(initial_filtering_t97_t89_density)$data[[1]]
 

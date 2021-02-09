@@ -23,10 +23,10 @@ strain.colours <- c("DL238"="gold2", "N2"="plum4","JU775"= "darkorange1",
                       "MY23"="mediumpurple4","EG4725"= "chocolate")
 
 # load wormwatcher data
-ww_df <- data.table::fread('~/Dropbox/AndersenLab/LabFolders/Tim/projects/WorMotel/data/2019-05-24_AllDataLongFormat.csv', header = T)
+ww_df <- data.table::fread('~/Dropbox/AndersenLab/LabFolders/Tim/projects/Lifespan/data/2019-05-24_AllDataLongFormat.csv', header = T)
 
 # load life machine data
-lm_df <- data.table::fread('~/Dropbox/AndersenLab/LabFolders/Tim/projects/WorMotel/data/CeNDR_lifespans.csv', header = T)
+lm_df <- data.table::fread('~/Dropbox/AndersenLab/LabFolders/Tim/projects/Lifespan/data/CeNDR_lifespans.csv', header = T)
 
 # define heritability test
 # data is data frame that contains strain and phenotype column

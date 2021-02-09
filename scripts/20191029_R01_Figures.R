@@ -423,12 +423,12 @@ grouped_traits <- ggplot(ww_df_proc_distinct, aes(fill=trait, y=value, x=factor(
 
 # Add all of it together
 R01_Figure_v3 <- cowplot::plot_grid(world_plot, mean_bars, ncol = 2, labels = c("A",""), rel_widths = c(1,.4))
-ggsave(R01_Figure_v3, filename = "plots/R01_Figure_v3.pdf", width = 7.5, height = 4, useDingbats = FALSE)
-ggsave(R01_Figure_v3, filename = "plots/R01_Figure_v3.png", width = 7.5, height = 4, dpi = 300)
+#ggsave(R01_Figure_v3, filename = "plots/R01_Figure_v3.pdf", width = 7.5, height = 4, useDingbats = FALSE)
+#ggsave(R01_Figure_v3, filename = "plots/R01_Figure_v3.png", width = 7.5, height = 4, dpi = 300)
 
 R01_Figure_v4_sterr <- cowplot::plot_grid(world_plot, mean_bars_sterr, ncol = 2, labels = c("A",""), rel_widths = c(1,.4))
-ggsave(R01_Figure_v4_sterr, filename = "plots/R01_Figure_v4.pdf", width = 7.5, height = 4, useDingbats = FALSE)
-ggsave(R01_Figure_v4_sterr, filename = "plots/R01_Figure_v4.png", width = 7.5, height = 4, dpi = 300)
+#ggsave(R01_Figure_v4_sterr, filename = "plots/R01_Figure_v4.pdf", width = 7.5, height = 4, useDingbats = FALSE)
+#ggsave(R01_Figure_v4_sterr, filename = "plots/R01_Figure_v4.png", width = 7.5, height = 4, dpi = 300)
 
 ##############################################################################################
 ### R01 data analysis: Broad-sense and narrow-sense heritability for Patrick Phillips data ###
@@ -509,7 +509,7 @@ df_H2 <- sommer::mmer(value~1, random=~vs(strain1,Gu=A)+vs(strain2,Gu=E), data=d
 
 (summary(df_H2)$varcomp)
 
-# Broad-sense H2 (additive only). Not ewe never worry about dominance because we assume homozygous.
+# Broad-sense H2 (additive only). Note we never worry about dominance because we assume homozygous.
 pin(df_H2, H2 ~ (V1) / (V1+V2+V3))
 
 # narrow-sense H2 (additive + epistatic variance) / (additive, epistatic, error)
