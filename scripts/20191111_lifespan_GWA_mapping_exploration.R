@@ -32,6 +32,9 @@ plot_df_filtered <- plot_df %>%
 # Filter to strains in mapping
 strains <- data.table::fread('data/strain_list_CFY.tsv')
 
+# make strain list for vcftools consensus
+rio::export(strains, file = "data/strain.list.txt", format = 'tsv', col.names = F)
+
 plot_df_filtered_mapping <- plot_df_filtered %>%
   dplyr::filter(isotype %in% strains$strain)
 

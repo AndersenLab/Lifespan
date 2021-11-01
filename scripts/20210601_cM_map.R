@@ -1,3 +1,4 @@
+library(tidyverse)
 # format cM file for Tim ce popgen PCA analysis
 # need: (1) chrom (2) start pos (3) end pos (4) cM
 
@@ -6,6 +7,9 @@
 
 # pull out physical map
 # zcat c_elegans.PRJNA13758.WS276.annotations.gff3.gz | grep pmap > c_elegans.PRJNA13758.WS276.annotations.cM.gff3
+
+# set working directory
+setwd(glue::glue("{dirname(rstudioapi::getActiveDocumentContext()$path)}/.."))
 
 # re-format in R
 rm_row <- function(df) {
@@ -63,7 +67,7 @@ rm_row <- function(df) {
     return(out)
 }
 
-gff <- read.delim("~/Downloads/c_elegans.PRJNA13758.WS276.annotations.cM.gff3", header=FALSE, stringsAsFactors=FALSE)
+gff <- read.delim("data/c_elegans.PRJNA13758.WS276.annotations.cM.gff3", header=FALSE, stringsAsFactors=FALSE)
 gff2 <- gff %>% 
     dplyr::filter(str_detect(V2, "abs")) %>% 
     tidyr::separate(V9, c("others","pmap"), sep = "Note=") %>% 
@@ -83,8 +87,8 @@ df_new <- start_pos %>%
     dplyr::filter(cM != 0) %>% 
     dplyr::distinct(cM, .keep_all = T) %>% 
     dplyr::distinct(pos, .keep_all = T) %>% 
-    dplyr::group_by(V1) %>% 
-    dplyr::do( rm_row(.) ) 
+    dplyr::group_by(V1) #%>% 
+    #dplyr::do( rm_row(.) ) 
 
 # output for cepopgen
 df_cm <- df_new %>%
@@ -92,7 +96,16 @@ df_cm <- df_new %>%
     dplyr::mutate(startpos = ifelse(is.na(startpos), 1, startpos)) %>%
     dplyr::select(chrom = V1, startpos, endpos = pos, cM)
 
-readr::write_tsv(df_cm, "Ce_Genetic_Map_WS276.bed", col_names = FALSE)    
+# find our region
+lifespan_qtl <- df_cm %>%
+    dplyr::filter(chrom == "III" & (startpos > 11000000 & startpos < 12500000))
+#readr::write_tsv(df_cm, "Ce_Genetic_Map_WS276.bed", col_names = FALSE)    
     
+# 12186411 - 11746766 physical
+d1 <- 12.1556 - 15.9044 
+d2 <- 14.8405 - 15.9044
+d3 <- 14.6970 - 15.9044
 
 
+# 11505488 - 12052420 physical = ORDER
+test <- 10.5024 - 14.1221
