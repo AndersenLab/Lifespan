@@ -1,5 +1,6 @@
 library(tidyverse)
 library(gggenes)
+library(genemodel)
 
 # set working directory
 setwd(glue::glue("{dirname(rstudioapi::getActiveDocumentContext()$path)}/.."))
@@ -35,11 +36,23 @@ ggplot(example_genes, aes(xmin = start, xmax = end, y = molecule, fill = gene)) 
   scale_fill_brewer(palette = "Set3")
 view(example_genes)
 
+spl1<-data.frame(
+  type=c("5' utr", "coding_region", "intron", "coding_region", "intron", "coding_region","3' utr"), 
+  coordinates=c("1-50", "50-100", "100-150", "150-200", "200-250", "250-300","300-350"))
 
+genemodel.plot(model=spl1, start=1, bpstop=350, orientation="reverse", xaxis=T)
+mutation.plot(25150214, 25150214, text="P->S", col="black", drop=0, haplotypes=c("red", "blue"))
+mutation.plot(75, 75, text="P->S", col="black", drop=0, haplotypes=c("red", "blue"))
 
+# pull taf-7.2 gff model from WS276
+gff76_taf <- data.table::fread("data/WS276_taf7.2.gff3")
+gff82_taf <- data.table::fread("data/WS282_taf7.2.gff3")
 
-
-
+gene_df_276 <- gff76_taf %>%
+  dplyr::rename(type = V3, start = V4, stop = V5) %>%
+  dplyr::mutate(type2 = case_when(type == "mRNA") )
+  dplyr::mutate(coordinates = paste0(start, "-", stop))
+  type = V3, 
 #>Y111B2A.42
 #CCACAATCATTCTTCGACGACACACCAGTAGCATCTTCCGACGATCCACCAGACTTCGAAAGTCACATTGTACTACGTGTACCTGAAGATTGTGTGGGTAGAATCGAGAAAATCATTCAATCGGACGGAAAACACGAGGAATTCTCGTTAAATTTGAATTCAGACGCTCGAAATTCCACAGTCAGAATCGGAAATCAACTGTTAAATGGAAAAATCCTGGATCTTCCCACTATAACAGAAATCCACAAGACATTAGACAACAAAAGCCTGTATAAAGTCGCAGATGTCTCACAGATCCTTGTCTGCACCCATGATTCCATCAATTCAATAGCTTCAAGCTCTGAAGATGCTGCTCAGAAAGCAGCAGCGGCAAAGGCAAAACAATGGCAATACCCGCACGGACTGACGCCTCCCATGAAATCGGCGAGGAAGAAGCGATTTCGAAAGACTAAGAAGAAAAAGTTTATGGATGCTCCAGAGGTTGAGAAGGAGCTCAAGAGACTGCTCCGTGCAGATTTGGAAGCGGATAGTGTGAAATGGGAAATTGTGGAAGGGAATAAGGAAGGTGCGACGGATGAAG
 

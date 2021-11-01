@@ -1,3 +1,4 @@
+III	WormBase	gene	12670689	12673423	.	-	.	ID=Gene:WBGene00006389;Name=WBGene00006389;locus=taf-7.2;sequence_name=Y111B2A.16;biotype=protein_coding;so_term_name=protein_coding_gene;curie=WB:WBGene00006389;Alias=taf-7.2,Y111B2A.16
 III	WormBase	mRNA	12670689	12673423	.	-	.	ID=Transcript:Y111B2A.16.1;Parent=Gene:WBGene00006389;Name=Y111B2A.16.1;wormpep=CE24137;locus=taf-7.2;uniprot_id=Q9NEW8
 III	WormBase	exon	12670689	12672200	.	-	.	Parent=Transcript:Y111B2A.16.1
 III	WormBase	three_prime_UTR	12670689	12671537	.	-	.	Parent=Transcript:Y111B2A.16.1
