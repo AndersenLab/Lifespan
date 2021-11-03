@@ -41,8 +41,8 @@ spl1<-data.frame(
   coordinates=c("1-50", "50-100", "100-150", "150-200", "200-250", "250-300","300-350"))
 
 genemodel.plot(model=spl1, start=1, bpstop=350, orientation="reverse", xaxis=T)
-mutation.plot(25150214, 25150214, text="P->S", col="black", drop=0, haplotypes=c("red", "blue"))
-mutation.plot(75, 75, text="P->S", col="black", drop=0, haplotypes=c("red", "blue"))
+mutation.plot(100, 100, text="P->S", col="black", drop=-0.15, haplotypes=c("red", "blue"))
+mutation.plot(75, 75, text="P->S", col="black", drop=-0.35, haplotypes=c("red", "blue"))
 
 # pull taf-7.2 gff model from WS276
 gff76_taf <- data.table::fread("data/WS276_taf7.2.gff3")
@@ -50,12 +50,30 @@ gff82_taf <- data.table::fread("data/WS282_taf7.2.gff3")
 
 gene_df_276 <- gff76_taf %>%
   dplyr::rename(type = V3, start = V4, stop = V5) %>%
-  dplyr::mutate(type2 = case_when(type == "mRNA") )
-  dplyr::mutate(coordinates = paste0(start, "-", stop))
-  type = V3, 
+  dplyr::filter(type %in% c("five_prime_UTR", "CDS", "intron", "three_prime_UTR")) %>%
+  dplyr::mutate(type2 = case_when(type == "five_prime_UTR" ~ "5' utr",
+                                  type == "CDS" ~ "coding_region",
+                                  type == "intron" ~ "intron",
+                                  type == "three_prime_UTR" ~ "3' utr",
+                                  TRUE ~ NA_character_),
+                coordinates = paste0(start, "-", stop)) %>%
+  dplyr::filter(grepl("Parent=Transcript:Y111B2A.16.1", V9)) %>%
+  dplyr::select(type = type2, coordinates) %>%
+  dplyr::arrange(desc(coordinates)) %>%
+  dplyr::slice(1:5) %>%
+  dplyr::mutate(type = factor(type),
+                coordinates = factor(coordinates))
+                                
+genemodel.plot(model=gene_df_276, start = 12671509, bpstop = 12673423, orientation="reverse", xaxis=T)
+
+test1 <- ge
+test<-data.frame(
+  type=c("5' utr", "coding_region", "intron", "coding_region", "intron", "coding_region", "3' utr"), 
+  coordinates=c("70000-70100", "70101-70200", "70201-70300", "70301-70400", "70401-70500", "70501-70600", "70601-70700"))
+genemodel.plot(model=test, start=70000, bpstop=70800, orientation="reverse", xaxis=T)
 #>Y111B2A.42
 #CCACAATCATTCTTCGACGACACACCAGTAGCATCTTCCGACGATCCACCAGACTTCGAAAGTCACATTGTACTACGTGTACCTGAAGATTGTGTGGGTAGAATCGAGAAAATCATTCAATCGGACGGAAAACACGAGGAATTCTCGTTAAATTTGAATTCAGACGCTCGAAATTCCACAGTCAGAATCGGAAATCAACTGTTAAATGGAAAAATCCTGGATCTTCCCACTATAACAGAAATCCACAAGACATTAGACAACAAAAGCCTGTATAAAGTCGCAGATGTCTCACAGATCCTTGTCTGCACCCATGATTCCATCAATTCAATAGCTTCAAGCTCTGAAGATGCTGCTCAGAAAGCAGCAGCGGCAAAGGCAAAACAATGGCAATACCCGCACGGACTGACGCCTCCCATGAAATCGGCGAGGAAGAAGCGATTTCGAAAGACTAAGAAGAAAAAGTTTATGGATGCTCCAGAGGTTGAGAAGGAGCTCAAGAGACTGCTCCGTGCAGATTTGGAAGCGGATAGTGTGAAATGGGAAATTGTGGAAGGGAATAAGGAAGGTGCGACGGATGAAG
-
+library(Gviz)
 #==============================================#
 # Look at mapping
 #==============================================#
